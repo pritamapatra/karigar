@@ -46,6 +46,14 @@ export function AppShell({
             </Link>
           );
         })}
+        <form action="/auth/signout" method="post" className="mt-auto">
+          <button
+            type="submit"
+            className="text-ink-2 hover:bg-surface min-h-12 w-20 rounded-2xl text-[13px] leading-[18px] font-medium"
+          >
+            Sign out
+          </button>
+        </form>
       </nav>
 
       <main className="mx-auto w-full max-w-[1040px] p-6 pb-28 md:pb-6">
