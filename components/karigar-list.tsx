@@ -6,6 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  KarigarSheet,
+  type Category,
+  type Karigar,
+} from "@/components/karigar-sheet";
+import {
   Table,
   TableBody,
   TableCell,
@@ -14,30 +19,31 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-type Karigar = {
-  id: string;
-  name: string;
-  code: string;
-  active: boolean;
-  wastage: { categoryId: string; wastageBp: number }[];
-};
-
 type State =
   | { status: "loading" }
   | { status: "error" }
-  | { status: "ready"; rows: Karigar[] };
+  | { status: "ready"; rows: Karigar[]; categories: Category[] };
 
 export function KarigarList() {
   const [state, setState] = useState<State>({ status: "loading" });
   const [query, setQuery] = useState("");
   const [attempt, setAttempt] = useState(0);
+  const [selected, setSelected] = useState<Karigar | null>(null);
 
   useEffect(() => {
     let live = true;
-    fetch("/api/karigars")
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d: { karigars: Karigar[] }) => {
-        if (live) setState({ status: "ready", rows: d.karigars });
+    const get = (url: string) =>
+      fetch(url).then((r) =>
+        r.ok ? r.json() : Promise.reject(new Error(String(r.status))),
+      );
+    Promise.all([get("/api/karigars"), get("/api/categories")])
+      .then(([k, c]: [{ karigars: Karigar[] }, { categories: Category[] }]) => {
+        if (live)
+          setState({
+            status: "ready",
+            rows: k.karigars,
+            categories: c.categories,
+          });
       })
       .catch(() => {
         if (live) setState({ status: "error" });
@@ -51,7 +57,10 @@ export function KarigarList() {
     if (state.status !== "ready") return [];
     const q = query.trim().toLowerCase();
     return state.rows.filter(
-      (k) => !q || k.name.toLowerCase().includes(q) || k.code.toLowerCase().includes(q),
+      (k) =>
+        !q ||
+        k.name.toLowerCase().includes(q) ||
+        k.code.toLowerCase().includes(q),
     );
   }, [state, query]);
 
@@ -89,7 +98,9 @@ export function KarigarList() {
 
       {state.status === "ready" && rows.length === 0 && (
         <p className="text-ink/60 py-8">
-          {state.rows.length === 0 ? "No karigars yet." : "No karigars match your search."}
+          {state.rows.length === 0
+            ? "No karigars yet."
+            : "No karigars match your search."}
         </p>
       )}
 
@@ -105,10 +116,16 @@ export function KarigarList() {
           </TableHeader>
           <TableBody>
             {rows.map((k) => (
-              <TableRow key={k.id}>
+              <TableRow
+                key={k.id}
+                onClick={() => setSelected(k)}
+                className="cursor-pointer"
+              >
                 <TableCell className="tabular-nums">{k.code}</TableCell>
                 <TableCell>{k.name}</TableCell>
-                <TableCell className="text-right tabular-nums">{k.wastage.length}</TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {k.wastage.length}
+                </TableCell>
                 <TableCell>
                   <Badge variant={k.active ? "default" : "secondary"}>
                     {k.active ? "Active" : "Inactive"}
@@ -119,6 +136,14 @@ export function KarigarList() {
           </TableBody>
         </Table>
       )}
+
+      <KarigarSheet
+        karigar={selected}
+        categories={state.status === "ready" ? state.categories : []}
+        onOpenChange={(open) => {
+          if (!open) setSelected(null);
+        }}
+      />
     </div>
   );
 }
