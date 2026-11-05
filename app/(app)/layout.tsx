@@ -1,3 +1,4 @@
+import { connection } from "next/server";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { AppShell } from "@/components/app-shell";
@@ -6,6 +7,7 @@ import { HttpError } from "@/lib/authz";
 import { NAV_BY_ROLE } from "@/lib/roles";
 
 async function RoleShell({ children }: { children: React.ReactNode }) {
+  await connection();
   let session;
   try {
     session = await requireRole("clerk", "finance", "partner", "karigar");
