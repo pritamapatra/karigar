@@ -12,7 +12,19 @@ export async function GET() {
       orderBy: { name: "asc" },
       include: { wastage: true },
     });
-    return Response.json({ karigars: rows, canEdit: role !== "partner" });
+    const sums = await prisma.ledgerEntry.groupBy({
+      by: ["karigarId"],
+      where: { orgId },
+      _sum: { fineMg: true },
+    });
+    const balances = new Map(
+      sums.map((x) => [x.karigarId, x._sum.fineMg ?? 0]),
+    );
+    const karigars = rows.map((k) => ({
+      ...k,
+      balanceMg: balances.get(k.id) ?? 0,
+    }));
+    return Response.json({ karigars, canEdit: role !== "partner" });
   } catch (e) {
     return errorResponse(e);
   }
