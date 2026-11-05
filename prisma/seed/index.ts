@@ -1,6 +1,7 @@
 import { config } from "dotenv";
 import { createDb } from "../../lib/db";
 import { ORG_ID, seedOrg } from "./org";
+import { seedMurugesan } from "./murugesan";
 import { seedUsers } from "./users";
 
 config({ path: ".env.local" });
@@ -10,6 +11,7 @@ async function main() {
   try {
     await seedOrg(db);
     await seedUsers(db);
+    await seedMurugesan(db);
     const org = await db.organization.findUniqueOrThrow({
       where: { id: ORG_ID },
     });
