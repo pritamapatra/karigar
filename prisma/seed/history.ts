@@ -1,5 +1,5 @@
 import { fineMg } from "../../lib/gold";
-import type { PrismaClient } from "../../lib/generated/prisma/client";
+import type { Prisma, PrismaClient } from "../../lib/generated/prisma/client";
 import { CATEGORIES, ORG_ID } from "./org";
 
 const PURITY_H = 9160;
@@ -47,7 +47,7 @@ export async function seedHistory(db: PrismaClient) {
       skipDuplicates: true,
     });
 
-    const entries: Parameters<typeof db.ledgerEntry.createMany>[0]["data"] = [];
+    const entries: Prisma.LedgerEntryCreateManyInput[] = [];
     for (const [i, lossBp] of def.lossBp.entries()) {
       const n = i + 1;
       const opened = new Date(Date.UTC(2026, 4, 1, 4, 30) + i * 21 * DAY_MS);
