@@ -22,3 +22,30 @@ describe("fineMg", () => {
     expect(fineMg(1, 9160)).toBe(1);
   });
 });
+
+describe("fineMg guards", () => {
+  test("G6 rejects zero weight", () => {
+    expect(() => fineMg(0, 9160)).toThrow(RangeError);
+  });
+
+  test("G7 rejects negative weight", () => {
+    expect(() => fineMg(-1000, 9160)).toThrow(RangeError);
+  });
+
+  test("G8 rejects purity below 1 and above 10000", () => {
+    expect(() => fineMg(1000, 0)).toThrow(RangeError);
+    expect(() => fineMg(1000, 10001)).toThrow(RangeError);
+  });
+
+  test("G9 rejects fractional and non-finite inputs", () => {
+    expect(() => fineMg(1000.5, 9160)).toThrow(RangeError);
+    expect(() => fineMg(1000, 91.6)).toThrow(RangeError);
+    expect(() => fineMg(Number.NaN, 9160)).toThrow(RangeError);
+    expect(() => fineMg(Number.POSITIVE_INFINITY, 9160)).toThrow(RangeError);
+  });
+
+  test("accepts the purity bounds 1 and 10000", () => {
+    expect(fineMg(1000, 10000)).toBe(1000);
+    expect(fineMg(10000, 1)).toBe(1);
+  });
+});
