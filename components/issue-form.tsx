@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/select";
 import { fineMg, formatGrams } from "@/lib/gold";
 import { parseGramsToMg, parsePurityToH } from "@/lib/gold-input";
+import Link from "next/link";
+import { SlipDialog, type SlipData } from "@/components/slip-dialog";
 
 type K = {
   id: string;
@@ -69,6 +71,7 @@ export function IssueForm() {
   const [saving, setSaving] = useState(false);
   const [jobError, setJobError] = useState<string | null>(null);
   const keyRef = useRef<string | null>(null);
+  const [slip, setSlip] = useState<SlipData | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -112,6 +115,22 @@ export function IssueForm() {
   }
 
   const { ks, cs } = data;
+  if (ks.length === 0 || cs.length === 0) {
+    return (
+      <div className="flex flex-col items-start gap-3 py-8">
+        <p className="text-ink">
+          {ks.length === 0
+            ? "No active karigars yet. Add a karigar before issuing gold."
+            : "No item categories found."}
+        </p>
+        {ks.length === 0 && (
+          <Link href="/karigars" className="text-gold-ink underline">
+            Go to Karigars
+          </Link>
+        )}
+      </div>
+    );
+  }
   const karigar = ks.find((k) => k.id === karigarId);
   const grossMg = parseGramsToMg(gross);
   const purityH = parsePurityToH(purity);
@@ -149,8 +168,16 @@ export function IssueForm() {
         return;
       }
       if (!res.ok) throw new Error(String(res.status));
-      const out: { entry: { slipNo: string }; balanceMg: number } =
-        await res.json();
+      const out: {
+        entry: {
+          slipNo: string;
+          jobNumber: string;
+          grossMg: number;
+          purityH: number;
+          fineMg: number;
+        };
+        balanceMg: number;
+      } = await res.json();
       setData({
         ks: ks.map((k) =>
           k.id === karigarId ? { ...k, balanceMg: out.balanceMg } : k,
@@ -158,6 +185,17 @@ export function IssueForm() {
         cs,
       });
       toast.success(`Issued. Slip ${out.entry.slipNo}`);
+      setSlip({
+        slipNo: out.entry.slipNo,
+        issuedAt: new Date().toISOString(),
+        karigarName: karigar.name,
+        karigarCode: karigar.code,
+        jobNumber: out.entry.jobNumber,
+        category: cs.find((c) => c.id === categoryId)?.name ?? "",
+        grossMg: out.entry.grossMg,
+        purityH: out.entry.purityH,
+        fineMg: out.entry.fineMg,
+      });
       setJobNumber("");
       setGross("");
       setPurity("");
@@ -170,154 +208,163 @@ export function IssueForm() {
   }
 
   return (
-    <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
-      <div className="border-line flex flex-col gap-6 rounded-xl border bg-white p-6 lg:col-span-7">
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="karigar">Karigar</Label>
-          <Select
-            value={karigarId || null}
-            onValueChange={(v) => setKarigarId(v ?? "")}
-            items={ks.map((k) => ({
-              value: k.id,
-              label: `${k.name} - ${k.code}`,
-            }))}
-          >
-            <SelectTrigger id="karigar" className="min-h-12 w-full">
-              <SelectValue placeholder="Select a karigar" />
-            </SelectTrigger>
-            <SelectContent>
-              {ks.map((k) => (
-                <SelectItem key={k.id} value={k.id}>
-                  {k.name} - {k.code}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    <>
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
+        <div className="border-line flex flex-col gap-6 rounded-xl border bg-white p-6 lg:col-span-7">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="job">Job number</Label>
-            <Input
-              id="job"
-              value={jobNumber}
-              onChange={(e) => setJobNumber(e.target.value)}
-              className="min-h-12"
-              aria-invalid={jobError !== null}
-            />
-            {jobError && (
-              <p role="alert" className="text-alert-red text-sm">
-                {jobError}
-              </p>
-            )}
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="category">Item category</Label>
+            <Label htmlFor="karigar">Karigar</Label>
             <Select
-              value={categoryId || null}
-              onValueChange={(v) => setCategoryId(v ?? "")}
-              items={cs.map((c) => ({ value: c.id, label: c.name }))}
+              value={karigarId || null}
+              onValueChange={(v) => setKarigarId(v ?? "")}
+              items={ks.map((k) => ({
+                value: k.id,
+                label: `${k.name} - ${k.code}`,
+              }))}
             >
-              <SelectTrigger id="category" className="min-h-12 w-full">
-                <SelectValue placeholder="Select a category" />
+              <SelectTrigger id="karigar" className="min-h-12 w-full">
+                <SelectValue placeholder="Select a karigar" />
               </SelectTrigger>
               <SelectContent>
-                {cs.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name}
+                {ks.map((k) => (
+                  <SelectItem key={k.id} value={k.id}>
+                    {k.name} - {k.code}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
-        </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="gross">Gross weight (g)</Label>
-            <Input
-              id="gross"
-              value={gross}
-              onChange={(e) => setGross(e.target.value)}
-              inputMode="decimal"
-              placeholder="120.000"
-              className="min-h-12 text-right text-xl font-semibold"
-              style={num}
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="purity">Purity (%)</Label>
-            <Input
-              id="purity"
-              value={purity}
-              onChange={(e) => setPurity(e.target.value)}
-              inputMode="decimal"
-              placeholder="91.60"
-              className="min-h-12 text-right text-xl font-semibold"
-              style={num}
-            />
-          </div>
-        </div>
-
-        <Button onClick={submit} disabled={!ready} className="min-h-12">
-          {saving ? "Issuing" : "Issue gold"}
-        </Button>
-      </div>
-
-      <div className="bg-surface flex flex-col gap-4 rounded-2xl p-6 lg:col-span-5">
-        <p className="text-ink-2 text-sm font-medium tracking-wide uppercase">
-          Fine weight
-        </p>
-        <div className="rounded-xl bg-white p-4">
-          {fine === null ? (
-            <span
-              className="text-ink-2 text-[40px] leading-[44px] font-semibold"
-              style={num}
-            >
-              0.000
-            </span>
-          ) : (
-            <Figure
-              mg={fine}
-              className="text-ink text-[40px] leading-[44px] font-semibold"
-            />
-          )}
-        </div>
-
-        <div className="flex flex-col gap-2 rounded-xl bg-white p-4">
-          <div className="flex items-baseline justify-between">
-            <span className="text-ink-2">Current balance</span>
-            {karigar ? (
-              <Figure
-                mg={karigar.balanceMg}
-                className="text-ink font-semibold"
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="job">Job number</Label>
+              <Input
+                id="job"
+                value={jobNumber}
+                onChange={(e) => setJobNumber(e.target.value)}
+                className="min-h-12"
+                aria-invalid={jobError !== null}
               />
-            ) : (
-              <span className="text-ink-2">-</span>
-            )}
+              {jobError && (
+                <p role="alert" className="text-alert-red text-sm">
+                  {jobError}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="category">Item category</Label>
+              <Select
+                value={categoryId || null}
+                onValueChange={(v) => setCategoryId(v ?? "")}
+                items={cs.map((c) => ({ value: c.id, label: c.name }))}
+              >
+                <SelectTrigger id="category" className="min-h-12 w-full">
+                  <SelectValue placeholder="Select a category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {cs.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-          <div className="flex items-baseline justify-between">
-            <span className="text-ink-2">This issue</span>
-            {fine !== null ? (
-              <Figure mg={fine} sign className="text-gold-ink font-semibold" />
-            ) : (
-              <span className="text-ink-2">-</span>
-            )}
-          </div>
-          <div className="bg-line my-1 h-px" />
-          <div className="flex items-baseline justify-between">
-            <span className="text-ink font-semibold">Balance after issue</span>
-            {karigar && fine !== null ? (
-              <Figure
-                mg={karigar.balanceMg + fine}
-                className="text-ink text-xl font-semibold"
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="gross">Gross weight (g)</Label>
+              <Input
+                id="gross"
+                value={gross}
+                onChange={(e) => setGross(e.target.value)}
+                inputMode="decimal"
+                placeholder="120.000"
+                className="min-h-12 text-right text-xl font-semibold"
+                style={num}
               />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="purity">Purity (%)</Label>
+              <Input
+                id="purity"
+                value={purity}
+                onChange={(e) => setPurity(e.target.value)}
+                inputMode="decimal"
+                placeholder="91.60"
+                className="min-h-12 text-right text-xl font-semibold"
+                style={num}
+              />
+            </div>
+          </div>
+
+          <Button onClick={submit} disabled={!ready} className="min-h-12">
+            {saving ? "Issuing" : "Issue gold"}
+          </Button>
+        </div>
+
+        <div className="bg-surface flex flex-col gap-4 rounded-2xl p-6 lg:col-span-5">
+          <p className="text-ink-2 text-sm font-medium tracking-wide uppercase">
+            Fine weight
+          </p>
+          <div className="rounded-xl bg-white p-4">
+            {fine === null ? (
+              <span
+                className="text-ink-2 text-[40px] leading-[44px] font-semibold"
+                style={num}
+              >
+                0.000
+              </span>
             ) : (
-              <span className="text-ink-2">-</span>
+              <Figure
+                mg={fine}
+                className="text-ink text-[40px] leading-[44px] font-semibold"
+              />
             )}
+          </div>
+
+          <div className="flex flex-col gap-2 rounded-xl bg-white p-4">
+            <div className="flex items-baseline justify-between">
+              <span className="text-ink-2">Current balance</span>
+              {karigar ? (
+                <Figure
+                  mg={karigar.balanceMg}
+                  className="text-ink font-semibold"
+                />
+              ) : (
+                <span className="text-ink-2">-</span>
+              )}
+            </div>
+            <div className="flex items-baseline justify-between">
+              <span className="text-ink-2">This issue</span>
+              {fine !== null ? (
+                <Figure
+                  mg={fine}
+                  sign
+                  className="text-gold-ink font-semibold"
+                />
+              ) : (
+                <span className="text-ink-2">-</span>
+              )}
+            </div>
+            <div className="bg-line my-1 h-px" />
+            <div className="flex items-baseline justify-between">
+              <span className="text-ink font-semibold">
+                Balance after issue
+              </span>
+              {karigar && fine !== null ? (
+                <Figure
+                  mg={karigar.balanceMg + fine}
+                  className="text-ink text-xl font-semibold"
+                />
+              ) : (
+                <span className="text-ink-2">-</span>
+              )}
+            </div>
           </div>
         </div>
       </div>
-    </div>
+      <SlipDialog slip={slip} onClose={() => setSlip(null)} />
+    </>
   );
 }
