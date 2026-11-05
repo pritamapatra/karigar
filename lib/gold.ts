@@ -53,3 +53,22 @@ export function unexplainedMg(balance: number, allowedMg: number): number {
   assertInt(allowedMg, "Allowed wastage");
   return Math.max(0, balance - allowedMg);
 }
+
+function splitScaled(value: number, scale: number, digits: number) {
+  if (!Number.isInteger(value))
+    throw new RangeError("Value must be a whole number");
+  const abs = Math.abs(value);
+  const whole = Math.trunc(abs / scale).toLocaleString("en-US");
+  const frac = String(abs % scale).padStart(digits, "0");
+  return { sign: value < 0 ? "-" : "", whole, frac };
+}
+
+export function formatGrams(mg: number): string {
+  const { sign, whole, frac } = splitScaled(mg, 1000, 3);
+  return `${sign}${whole}.${frac} g`;
+}
+
+export function formatPurity(purityH: number): string {
+  const { sign, whole, frac } = splitScaled(purityH, 100, 2);
+  return `${sign}${whole}.${frac} %`;
+}
