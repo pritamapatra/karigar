@@ -22,7 +22,17 @@ import {
 type State =
   | { status: "loading" }
   | { status: "error" }
-  | { status: "ready"; rows: Karigar[]; categories: Category[] };
+  | {
+      status: "ready";
+      rows: Karigar[];
+      categories: Category[];
+      canEdit: boolean;
+    };
+
+const get = (url: string) =>
+  fetch(url).then((r) =>
+    r.ok ? r.json() : Promise.reject(new Error(String(r.status))),
+  );
 
 export function KarigarList() {
   const [state, setState] = useState<State>({ status: "loading" });
@@ -32,19 +42,21 @@ export function KarigarList() {
 
   useEffect(() => {
     let live = true;
-    const get = (url: string) =>
-      fetch(url).then((r) =>
-        r.ok ? r.json() : Promise.reject(new Error(String(r.status))),
-      );
     Promise.all([get("/api/karigars"), get("/api/categories")])
-      .then(([k, c]: [{ karigars: Karigar[] }, { categories: Category[] }]) => {
-        if (live)
-          setState({
-            status: "ready",
-            rows: k.karigars,
-            categories: c.categories,
-          });
-      })
+      .then(
+        ([k, c]: [
+          { karigars: Karigar[]; canEdit: boolean },
+          { categories: Category[] },
+        ]) => {
+          if (live)
+            setState({
+              status: "ready",
+              rows: k.karigars,
+              categories: c.categories,
+              canEdit: k.canEdit,
+            });
+        },
+      )
       .catch(() => {
         if (live) setState({ status: "error" });
       });
@@ -67,6 +79,14 @@ export function KarigarList() {
   function retry() {
     setState({ status: "loading" });
     setAttempt((n) => n + 1);
+  }
+
+  function saved(k: Karigar) {
+    setState((s) =>
+      s.status === "ready"
+        ? { ...s, rows: s.rows.map((r) => (r.id === k.id ? k : r)) }
+        : s,
+    );
   }
 
   return (
@@ -138,11 +158,14 @@ export function KarigarList() {
       )}
 
       <KarigarSheet
+        key={selected?.id ?? "none"}
         karigar={selected}
         categories={state.status === "ready" ? state.categories : []}
+        canEdit={state.status === "ready" && state.canEdit}
         onOpenChange={(open) => {
           if (!open) setSelected(null);
         }}
+        onSaved={saved}
       />
     </div>
   );
