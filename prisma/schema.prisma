@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
   output   = "../lib/generated/prisma"
@@ -10,4 +5,246 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+enum Role {
+  clerk
+  finance
+  partner
+  karigar
+
+  @@map("role")
+}
+
+enum JobStatus {
+  open
+  closed
+
+  @@map("job_status")
+}
+
+enum EntryType {
+  issue
+  receipt_piece
+  receipt_scrap
+  receipt_filings
+  correction
+
+  @@map("entry_type")
+}
+
+enum AiKind {
+  scale
+  karat_meter
+
+  @@map("ai_kind")
+}
+
+enum AiConfidence {
+  high
+  low
+  unreadable
+
+  @@map("ai_confidence")
+}
+
+enum AiStatus {
+  confirmed
+  overridden
+  rejected
+
+  @@map("ai_status")
+}
+
+enum AlertKind {
+  drift
+  over_allowance
+
+  @@map("alert_kind")
+}
+
+enum AlertStatus {
+  new
+  reviewed
+
+  @@map("alert_status")
+}
+
+model Organization {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String
+  openingVaultMg Int      @default(0) @map("opening_vault_mg")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  profiles      Profile[]
+  karigars      Karigar[]
+  categories    ItemCategory[]
+  jobs          Job[]
+  ledgerEntries LedgerEntry[]
+  alerts        Alert[]
+
+  @@map("organizations")
+}
+
+model Profile {
+  id          String  @id @db.Uuid
+  orgId       String  @map("org_id") @db.Uuid
+  role        Role
+  karigarId   String? @map("karigar_id") @db.Uuid
+  displayName String  @map("display_name")
+
+  org     Organization @relation(fields: [orgId], references: [id])
+  karigar Karigar?     @relation(fields: [karigarId], references: [id])
+
+  @@map("profiles")
+}
+
+model Karigar {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  name      String
+  code      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  org           Organization     @relation(fields: [orgId], references: [id])
+  profiles      Profile[]
+  wastage       KarigarWastage[]
+  jobs          Job[]
+  ledgerEntries LedgerEntry[]
+  alerts        Alert[]
+
+  @@unique([orgId, code])
+  @@map("karigars")
+}
+
+model ItemCategory {
+  id    String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId String @map("org_id") @db.Uuid
+  name  String
+
+  org     Organization     @relation(fields: [orgId], references: [id])
+  wastage KarigarWastage[]
+  jobs    Job[]
+
+  @@unique([orgId, name])
+  @@map("item_categories")
+}
+
+model KarigarWastage {
+  karigarId  String @map("karigar_id") @db.Uuid
+  categoryId String @map("category_id") @db.Uuid
+  wastageBp  Int    @map("wastage_bp")
+
+  karigar  Karigar      @relation(fields: [karigarId], references: [id], onDelete: Cascade)
+  category ItemCategory @relation(fields: [categoryId], references: [id])
+
+  @@id([karigarId, categoryId])
+  @@map("karigar_wastage")
+}
+
+model Job {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId        String    @map("org_id") @db.Uuid
+  jobNumber    String    @map("job_number")
+  karigarId    String    @map("karigar_id") @db.Uuid
+  categoryId   String    @map("category_id") @db.Uuid
+  issuedFineMg Int       @map("issued_fine_mg")
+  status       JobStatus @default(open)
+  openedAt     DateTime  @default(now()) @map("opened_at") @db.Timestamptz
+  closedAt     DateTime? @map("closed_at") @db.Timestamptz
+
+  org           Organization  @relation(fields: [orgId], references: [id])
+  karigar       Karigar       @relation(fields: [karigarId], references: [id])
+  category      ItemCategory  @relation(fields: [categoryId], references: [id])
+  ledgerEntries LedgerEntry[]
+  alerts        Alert[]
+
+  @@unique([orgId, jobNumber])
+  @@index([karigarId, status])
+  @@map("jobs")
+}
+
+model ScalePhoto {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storagePath String   @map("storage_path")
+  uploadedBy  String   @map("uploaded_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  readings      AiReading[]
+  ledgerEntries LedgerEntry[]
+
+  @@map("scale_photos")
+}
+
+model AiReading {
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  photoId     String       @map("photo_id") @db.Uuid
+  kind        AiKind
+  weightMg    Int?         @map("weight_mg")
+  purityH     Int?         @map("purity_h")
+  confidence  AiConfidence
+  rawResponse Json         @map("raw_response")
+  confirmedBy String?      @map("confirmed_by") @db.Uuid
+  status      AiStatus
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz
+
+  photo         ScalePhoto    @relation(fields: [photoId], references: [id])
+  ledgerEntries LedgerEntry[]
+
+  @@map("ai_readings")
+}
+
+model LedgerEntry {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId           String    @map("org_id") @db.Uuid
+  karigarId       String    @map("karigar_id") @db.Uuid
+  jobId           String    @map("job_id") @db.Uuid
+  entryType       EntryType @map("entry_type")
+  grossMg         Int       @map("gross_mg")
+  purityH         Int       @map("purity_h")
+  fineMg          Int       @map("fine_mg")
+  huid            String?
+  slipNo          String    @map("slip_no")
+  reversesEntryId String?   @unique @map("reverses_entry_id") @db.Uuid
+  reason          String?
+  photoId         String?   @map("photo_id") @db.Uuid
+  aiReadingId     String?   @map("ai_reading_id") @db.Uuid
+  idempotencyKey  String    @unique @map("idempotency_key")
+  createdBy       String    @map("created_by") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  org           Organization @relation(fields: [orgId], references: [id])
+  karigar       Karigar      @relation(fields: [karigarId], references: [id])
+  job           Job          @relation(fields: [jobId], references: [id])
+  reversesEntry LedgerEntry? @relation("Reversal", fields: [reversesEntryId], references: [id])
+  reversal      LedgerEntry? @relation("Reversal")
+  photo         ScalePhoto?  @relation(fields: [photoId], references: [id])
+  aiReading     AiReading?   @relation(fields: [aiReadingId], references: [id])
+
+  @@unique([orgId, slipNo])
+  @@index([karigarId, createdAt])
+  @@index([jobId])
+  @@map("ledger_entries")
+}
+
+model Alert {
+  id         String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId      String      @map("org_id") @db.Uuid
+  karigarId  String      @map("karigar_id") @db.Uuid
+  jobId      String      @map("job_id") @db.Uuid
+  kind       AlertKind
+  baselineBp Int?        @map("baseline_bp")
+  actualBp   Int         @map("actual_bp")
+  message    String
+  status     AlertStatus @default(new)
+  createdAt  DateTime    @default(now()) @map("created_at") @db.Timestamptz
+
+  org     Organization @relation(fields: [orgId], references: [id])
+  karigar Karigar      @relation(fields: [karigarId], references: [id])
+  job     Job          @relation(fields: [jobId], references: [id])
+
+  @@unique([jobId, kind])
+  @@index([status, createdAt])
+  @@map("alerts")
 }
