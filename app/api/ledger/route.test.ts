@@ -40,7 +40,7 @@ describe("GET /api/ledger", () => {
       request(`karigarId=${karigarId}&asOn=2026-11-06&orgId=untrusted`),
     );
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual(result);
+    expect(await response.json()).toEqual({ ...result, canCorrect: true });
     expect(mocks.requireRole).toHaveBeenCalledWith(
       "clerk",
       "finance",
@@ -51,6 +51,19 @@ describe("GET /api/ledger", () => {
       karigarId,
       asOn: "2026-11-06",
     });
+  });
+
+  test.each([
+    ["clerk", true],
+    ["finance", true],
+    ["partner", false],
+  ] as const)("derives canCorrect for %s", async (role, canCorrect) => {
+    mocks.requireRole.mockResolvedValue({ orgId, role });
+    const response = await GET(
+      request(`karigarId=${karigarId}&asOn=2026-11-06&canCorrect=true`),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ...result, canCorrect });
   });
 
   test.each([401, 403] as const)(

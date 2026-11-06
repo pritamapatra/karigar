@@ -46,12 +46,24 @@ export async function getLedger(
       createdAt: { lt: cutoff },
     },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    include: { job: { select: { status: true } } },
   });
 
+  const reversals = new Map(
+    rows
+      .filter((row) => row.entryType === "correction" && row.reversesEntryId)
+      .map((row) => [row.reversesEntryId, row.id]),
+  );
+
   let balanceMg = 0;
-  const entries = rows.map((row) => {
+  const entries = rows.map(({ job, ...row }) => {
     balanceMg += row.fineMg;
-    return { ...row, balanceMg };
+    return {
+      ...row,
+      balanceMg,
+      jobStatus: job.status,
+      reversalId: reversals.get(row.id) ?? null,
+    };
   });
 
   return {

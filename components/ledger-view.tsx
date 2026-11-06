@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { MouseEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,10 +22,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatGrams, formatPurity } from "@/lib/gold";
+import { Badge } from "@/components/ui/badge";
+import { CorrectionSheet } from "@/components/correction-sheet";
 
 type Karigar = { id: string; name: string; code: string };
 type Entry = {
   id: string;
+  reversalId: string | null;
+  reversesEntryId: string | null;
+  reason: string | null;
+  jobStatus: "open" | "closed";
   createdAt: string;
   slipNo: string;
   entryType:
@@ -39,6 +46,7 @@ type Entry = {
   balanceMg: number;
 };
 type Ledger = {
+  canCorrect: boolean;
   karigar: Karigar;
   asOn: string;
   timezone: string;
@@ -75,6 +83,30 @@ async function read<T>(url: string, signal: AbortSignal): Promise<T> {
   return response.json();
 }
 
+function followEntry(event: MouseEvent<HTMLAnchorElement>) {
+  const hash = event.currentTarget.hash;
+  const target = document.getElementById(hash.slice(1));
+  if (!target || target.getClientRects().length === 0) return;
+  if (
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  )
+    return;
+
+  event.preventDefault();
+  window.history.replaceState(window.history.state, "", hash);
+  target.setAttribute("tabindex", "-1");
+  target.focus({ preventScroll: true });
+  target.scrollIntoView({
+    block: "center",
+    inline: "nearest",
+    behavior: "instant",
+  });
+}
+
 function Loading() {
   return (
     <div aria-busy="true" aria-label="Loading ledger" className="space-y-4">
@@ -100,11 +132,15 @@ function Failure({ message, retry }: { message: string; retry: () => void }) {
 function LedgerResult({
   karigarId,
   asOn,
+  onSheetOpenChange,
 }: {
   karigarId: string;
   asOn: string;
+  onSheetOpenChange: (open: boolean) => void;
 }) {
   const [state, setState] = useState<Load<Ledger>>({ status: "loading" });
+  const [selected, setSelected] = useState<Entry | null>(null);
+  const [correctionPending, setCorrectionPending] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -138,8 +174,85 @@ function LedgerResult({
     );
 
   const ledger = state.data;
+
+  function entryActions(row: Entry, prefix: string) {
+    const reversal = row.reversalId
+      ? ledger.entries.find((entry) => entry.id === row.reversalId)
+      : null;
+    const original = row.reversesEntryId
+      ? ledger.entries.find((entry) => entry.id === row.reversesEntryId)
+      : null;
+    const canReverse =
+      ledger.canCorrect &&
+      row.entryType.startsWith("receipt_") &&
+      row.jobStatus === "open" &&
+      !row.reversalId;
+
+    return (
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+        {reversal && (
+          <>
+            <Badge variant="secondary">Corrected</Badge>
+            <a
+              className="text-gold-ink underline"
+              href={`#${prefix}-${reversal.id}`}
+              onClick={followEntry}
+            >
+              Reversal {reversal.slipNo}
+            </a>
+          </>
+        )}
+        {original && (
+          <a
+            className="text-gold-ink underline"
+            href={`#${prefix}-${original.id}`}
+            onClick={followEntry}
+          >
+            Reverses {original.slipNo}
+          </a>
+        )}
+        {row.reason && (
+          <span className="max-w-xs break-words whitespace-normal">
+            {row.reason}
+          </span>
+        )}
+        {canReverse && (
+          <Button
+            variant="outline"
+            className="min-h-12"
+            onClick={() => {
+              setSelected(row);
+              onSheetOpenChange(true);
+            }}
+          >
+            Correct
+          </Button>
+        )}
+      </div>
+    );
+  }
   return (
     <div className="space-y-6">
+      {selected && (
+        <CorrectionSheet
+          key={selected.id}
+          entry={selected}
+          onPendingChange={setCorrectionPending}
+          onOpenChange={(open) => {
+            if (!open && !correctionPending) {
+              setSelected(null);
+              onSheetOpenChange(false);
+            }
+          }}
+          onSaved={() => {
+            setSelected(null);
+            setCorrectionPending(false);
+            onSheetOpenChange(false);
+            setState({ status: "loading" });
+            setAttempt((value) => value + 1);
+          }}
+        />
+      )}
       <section
         aria-label="Fine-gold balance"
         className="border-line bg-surface rounded-2xl border p-6"
@@ -186,12 +299,19 @@ function LedgerResult({
                 </TableHeader>
                 <TableBody>
                   {ledger.entries.map((row) => (
-                    <TableRow key={row.id} className="h-14">
+                    <TableRow
+                      key={row.id}
+                      id={`desktop-${row.id}`}
+                      className="h-14 scroll-mt-14"
+                    >
                       <TableCell>
                         {dateFormat.format(new Date(row.createdAt))}
                       </TableCell>
                       <TableCell>{row.slipNo}</TableCell>
-                      <TableCell>{labels[row.entryType]}</TableCell>
+                      <TableCell className="whitespace-normal">
+                        {labels[row.entryType]}
+                        {entryActions(row, "desktop")}
+                      </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {formatGrams(row.grossMg)}
                         {row.entryType === "receipt_piece" ? " net" : ""}
@@ -216,6 +336,7 @@ function LedgerResult({
             {ledger.entries.map((row) => (
               <article
                 key={row.id}
+                id={`phone-${row.id}`}
                 className="border-line space-y-4 rounded-xl border bg-white p-4"
               >
                 <div className="flex flex-wrap justify-between gap-2">
@@ -224,7 +345,10 @@ function LedgerResult({
                     {dateFormat.format(new Date(row.createdAt))}
                   </time>
                 </div>
-                <p>{labels[row.entryType]}</p>
+                <div>
+                  <p>{labels[row.entryType]}</p>
+                  {entryActions(row, "phone")}
+                </div>
                 <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-2 text-sm">
                   <dt className="text-ink-2">
                     {row.entryType === "receipt_piece"
@@ -261,6 +385,7 @@ export function LedgerView({ initialDate }: { initialDate: string }) {
   const [attempt, setAttempt] = useState(0);
   const [karigarId, setKarigarId] = useState("");
   const [asOn, setAsOn] = useState(initialDate);
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -312,6 +437,7 @@ export function LedgerView({ initialDate }: { initialDate: string }) {
           <Label htmlFor="ledger-karigar">Karigar</Label>
           <Select
             value={karigarId || null}
+            disabled={sheetOpen}
             onValueChange={(value) => setKarigarId(value ?? "")}
             items={items}
           >
@@ -331,6 +457,7 @@ export function LedgerView({ initialDate }: { initialDate: string }) {
           <Label htmlFor="ledger-date">As on (IST)</Label>
           <Input
             id="ledger-date"
+            disabled={sheetOpen}
             type="date"
             min="1000-01-01"
             max="9999-12-31"
@@ -347,6 +474,7 @@ export function LedgerView({ initialDate }: { initialDate: string }) {
       ) : (
         <LedgerResult
           key={`${karigarId}:${asOn}`}
+          onSheetOpenChange={setSheetOpen}
           karigarId={karigarId}
           asOn={asOn}
         />

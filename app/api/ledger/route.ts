@@ -11,7 +11,7 @@ const querySchema = z.object({
 
 export async function GET(request: Request) {
   try {
-    const { orgId } = await requireRole("clerk", "finance", "partner");
+    const { orgId, role } = await requireRole("clerk", "finance", "partner");
     const params = new URL(request.url).searchParams;
     const parsed = querySchema.safeParse({
       karigarId: params.get("karigarId"),
@@ -27,9 +27,12 @@ export async function GET(request: Request) {
 
     const db = await getPrisma();
     const ledger = await getLedger(db, { orgId, ...parsed.data });
-    return Response.json(ledger, {
-      headers: { "Cache-Control": "private, no-store" },
-    });
+    return Response.json(
+      { ...ledger, canCorrect: role === "clerk" || role === "finance" },
+      {
+        headers: { "Cache-Control": "private, no-store" },
+      },
+    );
   } catch (error) {
     return errorResponse(error);
   }

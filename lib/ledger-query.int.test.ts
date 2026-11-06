@@ -83,6 +83,58 @@ afterAll(async () => {
 });
 
 describe("as-on ledger query", () => {
+  test("shows correction metadata only when the reversal is within the as-on date", async () => {
+    const scope = await fixture(orgId, "Correction history");
+    await entry(scope, "2026-11-04T06:00:00.000Z", 916, 1000);
+    const receipt = await entry(scope, "2026-11-05T06:00:00.000Z", -916, 1000);
+    const correction = await db.ledgerEntry.create({
+      data: {
+        ...scope,
+        entryType: "correction",
+        grossMg: 1000,
+        purityH: 9160,
+        fineMg: 916,
+        reversesEntryId: receipt.id,
+        reason: "Wrong receipt",
+        slipNo: randomUUID(),
+        idempotencyKey: randomUUID(),
+        createdBy: randomUUID(),
+        createdAt: new Date("2026-11-06T06:00:00.000Z"),
+      },
+    });
+
+    const before = await getLedger(db, {
+      orgId,
+      karigarId: scope.karigarId,
+      asOn: "2026-11-05",
+    });
+    expect(before.balanceMg).toBe(0);
+    expect(before.entries).toHaveLength(2);
+    expect(before.entries.find((row) => row.id === receipt.id)).toMatchObject({
+      reversalId: null,
+      jobStatus: "open",
+    });
+
+    const after = await getLedger(db, {
+      orgId,
+      karigarId: scope.karigarId,
+      asOn: "2026-11-06",
+    });
+    expect(after.balanceMg).toBe(916);
+    expect(after.entries).toHaveLength(3);
+    expect(after.entries.find((row) => row.id === receipt.id)).toMatchObject({
+      reversalId: correction.id,
+      jobStatus: "open",
+    });
+    expect(after.entries.find((row) => row.id === correction.id)).toMatchObject(
+      {
+        reversesEntryId: receipt.id,
+        reason: "Wrong receipt",
+        reversalId: null,
+      },
+    );
+  });
+
   test("I15 historical balances ignore later receipts", async () => {
     const first = await getLedger(db, {
       orgId,
