@@ -1,6 +1,7 @@
 import type { createDb } from "@/lib/db";
 import { HttpError } from "@/lib/authz";
 import { allowedWastageMg, unexplainedMg } from "@/lib/gold";
+import { BASELINE_WINDOW, evaluateJobAlerts } from "@/lib/alerts";
 
 type Db = ReturnType<typeof createDb>;
 
@@ -43,10 +44,71 @@ export async function closeJob(
 
       const allowedMg = allowedWastageMg(rule.wastageBp, job.issuedFineMg);
       const unexplained = unexplainedMg(actualMg, allowedMg);
+      const priorJobs = await tx.job.findMany({
+        where: {
+          orgId: input.orgId,
+          karigarId: job.karigarId,
+          status: "closed",
+          closedAt: { not: null },
+          id: { not: job.id },
+        },
+        orderBy: [{ closedAt: "desc" }, { id: "desc" }],
+        take: BASELINE_WINDOW,
+        select: {
+          id: true,
+          issuedFineMg: true,
+          closedAllowedMg: true,
+          closedActualMg: true,
+        },
+      });
+
+      const historyComplete = priorJobs.every(
+        (prior) =>
+          prior.closedAllowedMg !== null && prior.closedActualMg !== null,
+      );
+      const priorLosses = historyComplete
+        ? [...priorJobs].reverse().map((prior) => ({
+            jobId: prior.id,
+            issuedFineMg: prior.issuedFineMg,
+            allowedMg: prior.closedAllowedMg!,
+            actualWastageMg: prior.closedActualMg!,
+          }))
+        : [];
+
+      const candidates = evaluateJobAlerts(
+        {
+          jobId: job.id,
+          issuedFineMg: job.issuedFineMg,
+          allowedMg,
+          actualWastageMg: actualMg,
+        },
+        priorLosses,
+      );
+
       const closed = await tx.job.update({
         where: { id: job.id },
-        data: { status: "closed", closedAt: new Date() },
+        data: {
+          status: "closed",
+          closedAt: new Date(),
+          closedAllowedMg: allowedMg,
+          closedActualMg: actualMg,
+        },
       });
+
+      if (candidates.length > 0) {
+        await tx.alert.createMany({
+          data: candidates.map((candidate) => ({
+            orgId: input.orgId,
+            karigarId: job.karigarId,
+            jobId: job.id,
+            kind: candidate.kind,
+            baselineBp: candidate.baselineBp,
+            actualBp: candidate.actualBp,
+            message: candidate.message,
+          })),
+          skipDuplicates: true,
+        });
+      }
 
       return {
         job: closed,

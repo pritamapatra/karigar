@@ -154,6 +154,9 @@ model Job {
   openedAt     DateTime  @default(now()) @map("opened_at") @db.Timestamptz
   closedAt     DateTime? @map("closed_at") @db.Timestamptz
 
+  closedAllowedMg Int? @map("closed_allowed_mg")
+  closedActualMg  Int? @map("closed_actual_mg")
+
   org           Organization  @relation(fields: [orgId], references: [id])
   karigar       Karigar       @relation(fields: [karigarId], references: [id])
   category      ItemCategory  @relation(fields: [categoryId], references: [id])
