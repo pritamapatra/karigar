@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Offline — Karigar</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 24px;
+        background: #fff;
+        color: #1b1b1a;
+        font:
+          16px/1.6 system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 600px;
+        margin: 12vh auto;
+      }
+      h1 {
+        font-size: 28px;
+        line-height: 1.25;
+      }
+      a {
+        display: inline-block;
+        min-height: 48px;
+        padding: 12px 16px;
+        color: #7a5a1a;
+        border: 1px solid #7a5a1a;
+        border-radius: 12px;
+      }
+      a:focus-visible {
+        outline: 3px solid #7a5a1a;
+        outline-offset: 4px;
+      }
+      .note {
+        padding: 16px;
+        border: 1px solid #e7e4dc;
+        border-radius: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>You are offline</h1>
+      <p>
+        Karigar could not reach the server. This page does not display private
+        account data.
+      </p>
+      <div class="note">
+        <p>
+          Drafts and queued entries already saved in this browser remain on this
+          tablet, unless browser storage has been cleared or evicted.
+        </p>
+        <p>
+          If an issue or receipt form is still open in another tab, continue
+          there. Reopening an authenticated form requires a connection in this
+          version.
+        </p>
+      </div>
+      <p>
+        Do not enter the same transaction again merely because its result is
+        uncertain. Reconnect, sign in to the same account, and check Sync review
+        first.
+      </p>
+      <a href="/">Retry connection</a>
+    </main>
+  </body>
+</html>

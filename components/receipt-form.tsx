@@ -1,5 +1,9 @@
 "use client";
 
+import { enqueue, type Owner } from "@/lib/offline/store";
+import { readReference } from "@/lib/offline/reference";
+import { useFormDraft, useOnline } from "@/lib/offline/use-form-draft";
+
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -40,7 +44,9 @@ const types = [
 
 type ReceiptType = (typeof types)[number]["value"];
 
-export function ReceiptForm() {
+export function ReceiptForm({ owner }: { owner?: Owner } = {}) {
+  const online = useOnline();
+  const [cachedAt, setCachedAt] = useState<number | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
     "loading",
@@ -59,15 +65,46 @@ export function ReceiptForm() {
   const [pending, setPending] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const requestRef = useRef<string | null>(null);
+  const [frozenRequest, setFrozenRequest] = useState<string | null>(null);
   const inFlight = useRef(false);
+  const [queueMessage, setQueueMessage] = useState<string | null>(null);
+  const draft = useFormDraft(
+    owner,
+    "receipt",
+    {
+      jobId,
+      entryType,
+      weight,
+      purity,
+      huid,
+      request: frozenRequest,
+    },
+    (value) => {
+      setJobId(value.jobId ?? "");
+      if (types.some((type) => type.value === value.entryType)) {
+        setEntryType(value.entryType);
+      }
+      setWeight(value.weight ?? "");
+      setPurity(value.purity ?? "");
+      setHuid(value.huid ?? "");
+      if (typeof value.request === "string") {
+        requestRef.current = value.request;
+        setPending(true);
+        setFrozenRequest(requestRef.current);
+      }
+    },
+  );
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/jobs", { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(String(response.status));
-        return response.json() as Promise<{ jobs: Job[] }>;
-      })
+    readReference<{ jobs: Job[] }>(
+      owner,
+      "/api/jobs",
+      { signal: controller.signal },
+      (time) => {
+        if (!controller.signal.aborted) setCachedAt(time);
+      },
+    )
       .then((data) => {
         if (controller.signal.aborted) return;
         setJobs(data.jobs);
@@ -77,7 +114,7 @@ export function ReceiptForm() {
         if (!controller.signal.aborted) setStatus("error");
       });
     return () => controller.abort();
-  }, [attempt]);
+  }, [attempt, owner]);
 
   const job = jobs.find((row) => row.id === jobId);
   const weightMg = parseGramsToMg(weight);
@@ -115,7 +152,12 @@ export function ReceiptForm() {
   );
 
   async function recordReceipt() {
-    if (photoBusy || inFlight.current || (!requestRef.current && !canRecord))
+    if (
+      photoBusy ||
+      inFlight.current ||
+      !draft.ready ||
+      (!requestRef.current && !canRecord)
+    )
       return;
 
     if (!requestRef.current) {
@@ -135,15 +177,63 @@ export function ReceiptForm() {
       });
     }
 
+    if (!online) {
+      if (!owner) {
+        setSaveError("Offline saving requires an authenticated account.");
+        return;
+      }
+      inFlight.current = true;
+      setBusy(true);
+      setSaveError(null);
+      try {
+        const payload = requestRef.current;
+        if (!payload) throw new Error("No frozen request is available.");
+        await enqueue(owner, "/api/receipts", payload);
+        requestRef.current = null;
+        setPending(false);
+        setFrozenRequest(null);
+        setPhoto(null);
+        setOverrideReason("");
+        setPhotoKey((value) => value + 1);
+        setWeight("");
+        setHuid("");
+        setQueueMessage(
+          "Saved on this tablet, not yet recorded in the ledger. Review sync after reconnecting.",
+        );
+        window.dispatchEvent(new Event("karigar-queue-changed"));
+      } catch (error) {
+        setPending(true);
+        setFrozenRequest(requestRef.current);
+        setSaveError(
+          error instanceof Error
+            ? error.message
+            : "Could not save locally. Keep this page open.",
+        );
+      } finally {
+        inFlight.current = false;
+        setBusy(false);
+      }
+      return;
+    }
+
     inFlight.current = true;
     setBusy(true);
     setPending(true);
+    setFrozenRequest(requestRef.current);
     setSaveError(null);
 
     try {
       const response = await fetch("/api/receipts", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(owner
+            ? {
+                "X-Karigar-User": owner.userId,
+                "X-Karigar-Org": owner.orgId,
+              }
+            : {}),
+        },
         body: requestRef.current,
       });
 
@@ -152,6 +242,7 @@ export function ReceiptForm() {
           const body = await response.json().catch(() => null);
           requestRef.current = null;
           setPending(false);
+          setFrozenRequest(null);
           setSaveError(
             typeof body?.error === "string"
               ? body.error
@@ -176,6 +267,7 @@ export function ReceiptForm() {
       );
       requestRef.current = null;
       setPending(false);
+      setFrozenRequest(null);
       setWeight("");
       setHuid("");
       setPhoto(null);
@@ -194,6 +286,7 @@ export function ReceiptForm() {
 
   async function closeSelectedJob() {
     if (
+      !online ||
       !job ||
       job.allowedMg === null ||
       pending ||
@@ -295,7 +388,10 @@ export function ReceiptForm() {
   return (
     <div className="grid items-start gap-6 lg:grid-cols-12">
       <div className="border-line space-y-6 rounded-xl border bg-white p-6 lg:col-span-7">
-        <fieldset disabled={busy || pending || photoBusy} className="space-y-6">
+        <fieldset
+          disabled={busy || pending || photoBusy || !draft.ready}
+          className="space-y-6"
+        >
           <legend className="sr-only">Receipt details</legend>
           <div className="space-y-2">
             <Label htmlFor="receipt-job">Open job</Label>
@@ -339,9 +435,26 @@ export function ReceiptForm() {
             </div>
           </fieldset>
 
+          <div className="text-ink-2 space-y-2 text-sm">
+            {draft.message && <p role="status">{draft.message}</p>}
+            {cachedAt !== null && (
+              <p role="status">
+                Using reference data saved {new Date(cachedAt).toLocaleString()}
+                . Balances are provisional; the server will validate every
+                entry.
+              </p>
+            )}
+            {!online && (
+              <p>
+                Offline: balances are provisional. Photo reading and job closure
+                require a connection.
+              </p>
+            )}
+            {queueMessage && <p role="status">{queueMessage}</p>}
+          </div>
           <ScalePhotoReader
             key={photoKey}
-            disabled={busy || pending}
+            disabled={busy || pending || !online}
             typedWeight={weightMg}
             typedPurity={purityH}
             onUseReading={(reading) => {
@@ -433,7 +546,9 @@ export function ReceiptForm() {
         <Button
           type="button"
           className="min-h-12"
-          disabled={busy || photoBusy || (!pending && !canRecord)}
+          disabled={
+            !draft.ready || busy || photoBusy || (!pending && !canRecord)
+          }
           onClick={recordReceipt}
         >
           {busy ? "Recording" : pending ? "Retry receipt" : "Record receipt"}
@@ -456,7 +571,7 @@ export function ReceiptForm() {
                 type="button"
                 variant="outline"
                 className="min-h-12"
-                disabled={busy || photoBusy || weight.trim() !== ""}
+                disabled={!online || busy || photoBusy || weight.trim() !== ""}
                 onClick={closeSelectedJob}
               >
                 {job.balanceMg > job.allowedMg

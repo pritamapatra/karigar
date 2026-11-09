@@ -1,3 +1,4 @@
+import { assertRequestOwner } from "@/lib/offline/request-owner";
 import { getPrisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { errorResponse, HttpError } from "@/lib/authz";
@@ -7,6 +8,7 @@ import { issueSchema } from "@/lib/schemas/issue";
 export async function POST(req: Request) {
   try {
     const { orgId, userId } = await requireRole("clerk", "finance");
+    assertRequestOwner(req, { userId, orgId });
     const parsed = issueSchema.safeParse(await req.json().catch(() => null));
     if (!parsed.success)
       throw new HttpError(400, parsed.error.issues[0].message);

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { SignoutButton } from "@/components/signout-button";
 import { NAV, type NavId } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 
@@ -46,17 +47,15 @@ export function AppShell({
             </Link>
           );
         })}
-        <form action="/auth/signout" method="post" className="mt-auto">
-          <button
-            type="submit"
-            className="text-ink-2 hover:bg-surface min-h-12 w-20 rounded-2xl text-[13px] leading-[18px] font-medium"
-          >
-            Sign out
-          </button>
-        </form>
+        <div className="mt-auto">
+          <SignoutButton />
+        </div>
       </nav>
 
       <main className="mx-auto w-full max-w-[1040px] p-6 pb-28 md:pb-6">
+        <div className="mb-3 flex justify-end md:hidden">
+          <SignoutButton />
+        </div>
         {children}
       </main>
 

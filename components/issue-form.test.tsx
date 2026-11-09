@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
+import "fake-indexeddb/auto";
+import { listQueue, saveDraft, type Owner } from "@/lib/offline/store";
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -110,7 +112,7 @@ function json(body: unknown, status = 200) {
   });
 }
 
-function setup() {
+function setup(owner?: Owner) {
   const fetchMock = vi
     .fn()
     .mockResolvedValueOnce(
@@ -132,12 +134,15 @@ function setup() {
       }),
     );
   vi.stubGlobal("fetch", fetchMock);
-  render(<IssueForm />);
+  render(<IssueForm owner={owner} />);
   return fetchMock;
 }
 
 async function fill(weight = "53.000") {
   const user = userEvent.setup();
+  await waitFor(() => {
+    expect(screen.getByLabelText("Karigar")).toBeEnabled();
+  });
   await user.selectOptions(await screen.findByLabelText("Karigar"), "k1");
   await user.selectOptions(screen.getByLabelText("Item category"), "c1");
   await user.type(screen.getByLabelText("Job number"), "JOB-1");
@@ -243,4 +248,50 @@ test("suggestions only change form values after explicit use", async () => {
   expect(screen.getByLabelText("Gross weight (g)")).toHaveValue("53.000");
   expect(screen.getByLabelText("Purity (%)")).toHaveValue("91.60");
   expect(screen.getByRole("button", { name: "Issue gold" })).toBeEnabled();
+});
+
+test("offline issue is queued locally without posting", async () => {
+  const owner = { orgId: crypto.randomUUID(), userId: crypto.randomUUID() };
+  const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+  try {
+    const fetchMock = setup(owner);
+    const user = await fill();
+    await user.click(screen.getByRole("button", { name: "Issue gold" }));
+    expect(
+      await screen.findByText(/Saved on this tablet, not yet recorded/),
+    ).toBeInTheDocument();
+    const rows = await listQueue(owner);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      endpoint: "/api/issues",
+      status: "waiting",
+    });
+    expect(JSON.parse(rows[0].body)).toMatchObject({
+      jobNumber: "JOB-1",
+      grossMg: 53000,
+      purityH: 9160,
+      idempotencyKey: expect.any(String),
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  } finally {
+    online.mockRestore();
+  }
+});
+
+test("issue draft restores without posting a transaction", async () => {
+  const owner = { orgId: crypto.randomUUID(), userId: crypto.randomUUID() };
+  await saveDraft(owner, "issue", {
+    karigarId: "k1",
+    categoryId: "c1",
+    jobNumber: "RESTORED-JOB",
+    gross: "12.345",
+    purity: "91.60",
+    request: null,
+  });
+  const fetchMock = setup(owner);
+  await waitFor(() => {
+    expect(screen.getByLabelText("Job number")).toHaveValue("RESTORED-JOB");
+    expect(screen.getByLabelText("Gross weight (g)")).toHaveValue("12.345");
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(2);
 });

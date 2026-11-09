@@ -1,5 +1,9 @@
 "use client";
 
+import { enqueue, type Owner } from "@/lib/offline/store";
+import { readReference } from "@/lib/offline/reference";
+import { useFormDraft, useOnline } from "@/lib/offline/use-form-draft";
+
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -38,11 +42,6 @@ const newKey = () =>
   globalThis.crypto?.randomUUID?.() ??
   `k-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-const get = (url: string) =>
-  fetch(url).then((r) =>
-    r.ok ? r.json() : Promise.reject(new Error(String(r.status))),
-  );
-
 function Figure({
   mg,
   className,
@@ -63,7 +62,9 @@ function Figure({
   );
 }
 
-export function IssueForm() {
+export function IssueForm({ owner }: { owner?: Owner } = {}) {
+  const online = useOnline();
+  const [cachedAt, setCachedAt] = useState<number | null>(null);
   const [data, setData] = useState<{ ks: K[]; cs: C[] } | "loading" | "error">(
     "loading",
   );
@@ -76,6 +77,7 @@ export function IssueForm() {
   const [saving, setSaving] = useState(false);
   const [jobError, setJobError] = useState<string | null>(null);
   const requestRef = useRef<string | null>(null);
+  const [frozenRequest, setFrozenRequest] = useState<string | null>(null);
   const inFlight = useRef(false);
   const [pending, setPending] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -84,10 +86,47 @@ export function IssueForm() {
   const [photoKey, setPhotoKey] = useState(0);
   const [overrideReason, setOverrideReason] = useState("");
   const [slip, setSlip] = useState<SlipData | null>(null);
+  const [queueMessage, setQueueMessage] = useState<string | null>(null);
+  const draft = useFormDraft(
+    owner,
+    "issue",
+    {
+      karigarId,
+      categoryId,
+      jobNumber,
+      gross,
+      purity,
+      request: frozenRequest,
+    },
+    (value) => {
+      setKarigarId(value.karigarId ?? "");
+      setCategoryId(value.categoryId ?? "");
+      setJobNumber(value.jobNumber ?? "");
+      setGross(value.gross ?? "");
+      setPurity(value.purity ?? "");
+      if (typeof value.request === "string") {
+        requestRef.current = value.request;
+        setPending(true);
+        setFrozenRequest(requestRef.current);
+      }
+    },
+  );
 
   useEffect(() => {
     let live = true;
-    Promise.all([get("/api/karigars"), get("/api/categories")])
+    Promise.all([
+      readReference<{ karigars: K[] }>(owner, "/api/karigars", {}, (time) => {
+        if (live) setCachedAt(time);
+      }),
+      readReference<{ categories: C[] }>(
+        owner,
+        "/api/categories",
+        {},
+        (time) => {
+          if (live) setCachedAt(time);
+        },
+      ),
+    ])
       .then(([k, c]: [{ karigars: K[] }, { categories: C[] }]) => {
         if (live)
           setData({ ks: k.karigars.filter((x) => x.active), cs: c.categories });
@@ -98,7 +137,7 @@ export function IssueForm() {
     return () => {
       live = false;
     };
-  }, [attempt]);
+  }, [attempt, owner]);
 
   if (data === "loading") {
     return (
@@ -170,6 +209,7 @@ export function IssueForm() {
       inFlight.current ||
       photoBusy ||
       !karigar ||
+      !draft.ready ||
       (!requestRef.current && !ready)
     )
       return;
@@ -190,16 +230,65 @@ export function IssueForm() {
       });
     }
 
+    if (!online) {
+      if (!owner) {
+        setSaveError("Offline saving requires an authenticated account.");
+        return;
+      }
+      inFlight.current = true;
+      setSaving(true);
+      setSaveError(null);
+      try {
+        const payload = requestRef.current;
+        if (!payload) throw new Error("No frozen request is available.");
+        await enqueue(owner, "/api/issues", payload);
+        requestRef.current = null;
+        setPending(false);
+        setFrozenRequest(null);
+        setPhoto(null);
+        setOverrideReason("");
+        setPhotoKey((value) => value + 1);
+        setJobNumber("");
+        setGross("");
+        setPurity("");
+        setQueueMessage(
+          "Saved on this tablet, not yet recorded in the ledger. Review sync after reconnecting.",
+        );
+        window.dispatchEvent(new Event("karigar-queue-changed"));
+      } catch (error) {
+        setPending(true);
+        setFrozenRequest(requestRef.current);
+        setSaveError(
+          error instanceof Error
+            ? error.message
+            : "Could not save locally. Keep this page open.",
+        );
+      } finally {
+        inFlight.current = false;
+        setSaving(false);
+      }
+      return;
+    }
+
     inFlight.current = true;
     setSaving(true);
     setPending(true);
+    setFrozenRequest(requestRef.current);
     setJobError(null);
     setSaveError(null);
 
     try {
       const res = await fetch("/api/issues", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(owner
+            ? {
+                "X-Karigar-User": owner.userId,
+                "X-Karigar-Org": owner.orgId,
+              }
+            : {}),
+        },
         body: requestRef.current,
       });
       if (!res.ok) {
@@ -207,6 +296,7 @@ export function IssueForm() {
           const body = await res.json().catch(() => null);
           requestRef.current = null;
           setPending(false);
+          setFrozenRequest(null);
           const message =
             typeof body?.error === "string"
               ? body.error
@@ -249,6 +339,7 @@ export function IssueForm() {
 
       requestRef.current = null;
       setPending(false);
+      setFrozenRequest(null);
       setJobNumber("");
       setGross("");
       setPurity("");
@@ -270,7 +361,7 @@ export function IssueForm() {
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
         <div className="border-line flex flex-col gap-6 rounded-xl border bg-white p-6 lg:col-span-7">
           <fieldset
-            disabled={saving || pending || photoBusy}
+            disabled={saving || pending || photoBusy || !draft.ready}
             className="flex min-w-0 flex-col gap-6"
           >
             <legend className="sr-only">Issue details</legend>
@@ -361,9 +452,26 @@ export function IssueForm() {
               </div>
             </div>
 
+            <div className="text-ink-2 space-y-2 text-sm">
+              {draft.message && <p role="status">{draft.message}</p>}
+              {cachedAt !== null && (
+                <p role="status">
+                  Using reference data saved{" "}
+                  {new Date(cachedAt).toLocaleString()}. Balances are
+                  provisional; the server will validate every entry.
+                </p>
+              )}
+              {!online && (
+                <p>
+                  Offline: balances are provisional. Photo reading and job
+                  closure require a connection.
+                </p>
+              )}
+              {queueMessage && <p role="status">{queueMessage}</p>}
+            </div>
             <ScalePhotoReader
               key={photoKey}
-              disabled={saving || pending}
+              disabled={saving || pending || !online}
               typedWeight={grossMg}
               typedPurity={purityH}
               onBusyChange={setPhotoBusy}
@@ -413,7 +521,9 @@ export function IssueForm() {
           <Button
             type="button"
             onClick={submit}
-            disabled={saving || photoBusy || (!pending && !ready)}
+            disabled={
+              !draft.ready || saving || photoBusy || (!pending && !ready)
+            }
             className="min-h-12"
           >
             {saving ? "Issuing" : pending ? "Retry issue" : "Issue gold"}

@@ -2,6 +2,7 @@ import { connection } from "next/server";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { AppShell } from "@/components/app-shell";
+import { ConnectivityStrip } from "@/components/connectivity-strip";
 import { requireRole } from "@/lib/auth";
 import { HttpError } from "@/lib/authz";
 import { NAV_BY_ROLE } from "@/lib/roles";
@@ -27,7 +28,16 @@ async function RoleShell({ children }: { children: React.ReactNode }) {
     }
     throw error;
   }
-  return <AppShell items={NAV_BY_ROLE[session.role]}>{children}</AppShell>;
+  return (
+    <AppShell items={NAV_BY_ROLE[session.role]}>
+      <ConnectivityStrip
+        key={`${session.orgId}:${session.userId}`}
+        owner={{ userId: session.userId, orgId: session.orgId }}
+        canWrite={session.role === "clerk" || session.role === "finance"}
+      />
+      {children}
+    </AppShell>
+  );
 }
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {

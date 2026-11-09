@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 
 import React from "react";
+import "fake-indexeddb/auto";
+import { listQueue, saveDraft, type Owner } from "@/lib/offline/store";
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -28,7 +30,9 @@ vi.mock("@/components/ui/select", () => ({
     >
       <option value="">Select a job</option>
       {items.map((item) => (
-        <option key={item.value} value={item.value}>{item.label}</option>
+        <option key={item.value} value={item.value}>
+          {item.label}
+        </option>
       ))}
     </select>
   ),
@@ -49,17 +53,19 @@ vi.mock("@/components/scale-photo-reader", () => ({
     <div>
       <button
         type="button"
-        onClick={() => onChange({
-          photoId: "p1",
-          aiReadingId: "r1",
-          reading: {
-            kind: "scale",
-            confidence: "high",
-            weight: { value: 53000, state: "ok" },
-            purity: { value: null, state: "cant_read" },
-            notes: null,
-          },
-        })}
+        onClick={() =>
+          onChange({
+            photoId: "p1",
+            aiReadingId: "r1",
+            reading: {
+              kind: "scale",
+              confidence: "high",
+              weight: { value: 53000, state: "ok" },
+              purity: { value: null, state: "cant_read" },
+              notes: null,
+            },
+          })
+        }
       >
         Attach test photo
       </button>
@@ -82,26 +88,33 @@ function json(body: unknown, status = 200) {
   });
 }
 
-function setup() {
-  const fetchMock = vi.fn().mockResolvedValueOnce(json({
-    jobs: [{
-      id: "j1",
-      jobNumber: "JOB-1",
-      karigar: { id: "k1", name: "Test Karigar", code: "K1" },
-      category: { id: "c1", name: "Ring" },
-      issuedFineMg: 200000,
-      balanceMg: 200000,
-      wastageBp: 100,
-      allowedMg: 2000,
-    }],
-  }));
+function setup(owner?: Owner) {
+  const fetchMock = vi.fn().mockResolvedValueOnce(
+    json({
+      jobs: [
+        {
+          id: "j1",
+          jobNumber: "JOB-1",
+          karigar: { id: "k1", name: "Test Karigar", code: "K1" },
+          category: { id: "c1", name: "Ring" },
+          issuedFineMg: 200000,
+          balanceMg: 200000,
+          wastageBp: 100,
+          allowedMg: 2000,
+        },
+      ],
+    }),
+  );
   vi.stubGlobal("fetch", fetchMock);
-  render(<ReceiptForm />);
+  render(<ReceiptForm owner={owner} />);
   return fetchMock;
 }
 
 async function fill(weight = "53.00") {
   const user = userEvent.setup();
+  await waitFor(() => {
+    expect(screen.getByLabelText("Open job")).toBeEnabled();
+  });
   await user.selectOptions(await screen.findByLabelText("Open job"), "j1");
   await user.click(screen.getByRole("button", { name: /^Scrap$/ }));
   await user.type(screen.getByLabelText("Gross weight (g)"), weight);
@@ -186,4 +199,53 @@ test("photo processing blocks receipt saving and job closure", async () => {
   expect(
     screen.getByRole("button", { name: "Close job for review" }),
   ).toBeDisabled();
+});
+
+test("offline receipt is queued locally without posting", async () => {
+  const owner = { orgId: crypto.randomUUID(), userId: crypto.randomUUID() };
+  const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+  try {
+    const fetchMock = setup(owner);
+    const user = await fill();
+    await user.click(screen.getByRole("button", { name: "Record receipt" }));
+    expect(
+      await screen.findByText(/Saved on this tablet, not yet recorded/),
+    ).toBeInTheDocument();
+    const rows = await listQueue(owner);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      endpoint: "/api/receipts",
+      status: "waiting",
+    });
+    expect(JSON.parse(rows[0].body)).toMatchObject({
+      jobId: "j1",
+      entryType: "receipt_scrap",
+      grossMg: 53000,
+      idempotencyKey: expect.any(String),
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole("button", { name: "Close job for review" }),
+    ).toBeDisabled();
+  } finally {
+    online.mockRestore();
+  }
+});
+
+test("receipt draft restores without posting a transaction", async () => {
+  const owner = { orgId: crypto.randomUUID(), userId: crypto.randomUUID() };
+  await saveDraft(owner, "receipt", {
+    jobId: "j1",
+    entryType: "receipt_scrap",
+    weight: "3.300",
+    purity: "91.60",
+    huid: "",
+    request: null,
+  });
+  const fetchMock = setup(owner);
+  await waitFor(() => {
+    expect(screen.getByLabelText("Gross weight (g)")).toHaveValue("3.300");
+    expect(screen.getByLabelText("Purity (%)")).toHaveValue("91.60");
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
 });

@@ -1,0 +1,10 @@
+{
+  "name": "Karigar by Isocode Labs",
+  "short_name": "Karigar",
+  "description": "Gold ledger with account-scoped local drafts and queued entries.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#7a5a1a"
+}
