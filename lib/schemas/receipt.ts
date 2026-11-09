@@ -6,6 +6,9 @@ const common = {
   jobId: z.uuid(),
   purityH: z.number().int().min(1).max(10000),
   idempotencyKey: z.uuid(),
+  photoId: z.uuid().optional(),
+  aiReadingId: z.uuid().optional(),
+  overrideReason: z.string().trim().min(1).max(500).optional(),
 };
 
 export const receiptSchema = z.discriminatedUnion("entryType", [

@@ -82,3 +82,62 @@ describe("receipt validation", () => {
     ).toBe(false);
   });
 });
+
+describe("receipt photo and AI fields", () => {
+  const receipt = {
+    ...common,
+    entryType: "receipt_scrap" as const,
+    grossMg: 3300,
+  };
+  const photoId = "8f1c2a52-3c1e-4d0e-8a57-0d8f5b1f9a12";
+  const aiReadingId = "9f1c2a52-3c1e-4d0e-8a57-0d8f5b1f9a13";
+
+  it("accepts a manual receipt without photo or AI fields", () => {
+    expect(receiptSchema.safeParse(receipt).success).toBe(true);
+  });
+
+  it("accepts a photo without an AI reading", () => {
+    expect(receiptSchema.parse({ ...receipt, photoId }).photoId).toBe(photoId);
+  });
+
+  it("accepts photo and AI references and trims the override reason", () => {
+    const result = receiptSchema.parse({
+      ...receipt,
+      photoId,
+      aiReadingId,
+      overrideReason: "  Scale glare; checked display manually  ",
+    });
+    expect(result).toMatchObject({
+      photoId,
+      aiReadingId,
+      overrideReason: "Scale glare; checked display manually",
+    });
+  });
+
+  it.each(["photoId", "aiReadingId"] as const)(
+    "rejects an invalid %s",
+    (field) => {
+      expect(
+        receiptSchema.safeParse({ ...receipt, [field]: "not-a-uuid" }).success,
+      ).toBe(false);
+    },
+  );
+
+  it.each(["", "   ", "x".repeat(501)])(
+    "rejects a blank or oversized override reason",
+    (overrideReason) => {
+      expect(
+        receiptSchema.safeParse({ ...receipt, overrideReason }).success,
+      ).toBe(false);
+    },
+  );
+
+  it("accepts an override reason of exactly 500 characters", () => {
+    expect(
+      receiptSchema.safeParse({
+        ...receipt,
+        overrideReason: "x".repeat(500),
+      }).success,
+    ).toBe(true);
+  });
+});

@@ -1,6 +1,7 @@
 import type { createDb } from "@/lib/db";
 import { HttpError } from "@/lib/authz";
 import { fineMg } from "@/lib/gold";
+import { checkReceiptAi } from "@/lib/receipt-ai";
 import type { ReceiptInput } from "@/lib/schemas/receipt";
 
 type Db = ReturnType<typeof createDb>;
@@ -9,8 +10,17 @@ type Input = ReceiptInput & { orgId: string; userId: string };
 export async function receiveGold(db: Db, d: Input) {
   const weightMg = d.entryType === "receipt_piece" ? d.netMg : d.grossMg;
   const huid = d.entryType === "receipt_piece" ? d.huid : null;
+  const photoId = d.photoId ?? null;
+  const aiReadingId = d.aiReadingId ?? null;
+  const reason = d.overrideReason?.trim() || null;
   const returnedFineMg = fineMg(weightMg, d.purityH);
 
+  if (aiReadingId && !photoId) {
+    throw new HttpError(400, "An AI reading requires a photo");
+  }
+  if (reason && !aiReadingId) {
+    throw new HttpError(400, "An override reason requires an AI reading");
+  }
   if (returnedFineMg <= 0) {
     throw new HttpError(
       400,
@@ -33,7 +43,10 @@ export async function receiveGold(db: Db, d: Input) {
           existing.entryType !== d.entryType ||
           existing.grossMg !== weightMg ||
           existing.purityH !== d.purityH ||
-          existing.huid !== huid)
+          existing.huid !== huid ||
+          existing.photoId !== photoId ||
+          existing.aiReadingId !== aiReadingId ||
+          existing.reason !== reason)
       ) {
         throw new HttpError(
           409,
@@ -71,6 +84,54 @@ export async function receiveGold(db: Db, d: Input) {
         throw new HttpError(409, "Receipt exceeds the available balance");
       }
 
+      if (photoId) {
+        const photo = await tx.scalePhoto.findUnique({
+          where: { id: photoId },
+        });
+        if (!photo || !photo.storagePath.startsWith(`${d.orgId}/`)) {
+          throw new HttpError(404, "Photo not found");
+        }
+      }
+
+      if (aiReadingId) {
+        const reading = await tx.aiReading.findUnique({
+          where: { id: aiReadingId },
+        });
+        if (!reading || reading.photoId !== photoId) {
+          throw new HttpError(404, "AI reading not found for this photo");
+        }
+
+        const linked = await tx.ledgerEntry.findFirst({
+          where: { aiReadingId },
+          select: { id: true },
+        });
+        if (linked) {
+          throw new HttpError(409, "AI reading already used for another entry");
+        }
+
+        if (reading.status === "pending") {
+          const decision = checkReceiptAi({
+            weightMg,
+            purityH: d.purityH,
+            reading,
+            overrideReason: reason ?? undefined,
+          });
+
+          const updated = await tx.aiReading.updateMany({
+            where: { id: reading.id, status: "pending" },
+            data: {
+              status: decision.status,
+              confirmedBy: d.userId,
+            },
+          });
+          if (updated.count !== 1) {
+            throw new HttpError(409, "AI reading changed. Refresh and try again");
+          }
+        } else if (reading.status !== "rejected") {
+          throw new HttpError(409, "AI reading has already been confirmed");
+        }
+      }
+
       const rows = await tx.$queryRaw<{ n: number }[]>`
       SELECT COALESCE(MAX(CAST(SUBSTRING(slip_no FROM 4) AS INT)), 30410) AS n
       FROM ledger_entries
@@ -86,6 +147,9 @@ export async function receiveGold(db: Db, d: Input) {
           purityH: d.purityH,
           fineMg: -returnedFineMg,
           huid,
+          photoId,
+          aiReadingId,
+          reason,
           slipNo: `TX-${Number(rows[0].n) + 1}`,
           idempotencyKey: d.idempotencyKey,
           createdBy: d.userId,
