@@ -52,6 +52,7 @@ enum AiStatus {
   confirmed
   overridden
   rejected
+  pending
 
   @@map("ai_status")
 }
