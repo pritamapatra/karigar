@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:int": "vitest run --config vitest.int.config.mts",
     "db:seed": "tsx prisma/seed/index.ts",
+    "storage:setup": "tsx scripts/setup-storage.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {
