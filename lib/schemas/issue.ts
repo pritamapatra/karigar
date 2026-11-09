@@ -7,4 +7,7 @@ export const issueSchema = z.object({
   grossMg: z.number().int().min(1).max(10_000_000),
   purityH: z.number().int().min(1).max(10000),
   idempotencyKey: z.string().min(8).max(64),
+  photoId: z.uuid().optional(),
+  aiReadingId: z.uuid().optional(),
+  overrideReason: z.string().trim().min(1).max(500).optional(),
 });

@@ -17,6 +17,11 @@ import { fineMg, formatGrams } from "@/lib/gold";
 import { parseGramsToMg, parsePurityToH } from "@/lib/gold-input";
 import Link from "next/link";
 import { SlipDialog, type SlipData } from "@/components/slip-dialog";
+import { saveGate } from "@/lib/ai-reading";
+import {
+  ScalePhotoReader,
+  type PhotoAttachment,
+} from "@/components/scale-photo-reader";
 
 type K = {
   id: string;
@@ -70,7 +75,14 @@ export function IssueForm() {
   const [purity, setPurity] = useState("");
   const [saving, setSaving] = useState(false);
   const [jobError, setJobError] = useState<string | null>(null);
-  const keyRef = useRef<string | null>(null);
+  const requestRef = useRef<string | null>(null);
+  const inFlight = useRef(false);
+  const [pending, setPending] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [photo, setPhoto] = useState<PhotoAttachment | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoKey, setPhotoKey] = useState(0);
+  const [overrideReason, setOverrideReason] = useState("");
   const [slip, setSlip] = useState<SlipData | null>(null);
 
   useEffect(() => {
@@ -136,38 +148,75 @@ export function IssueForm() {
   const purityH = parsePurityToH(purity);
   const fine =
     grossMg !== null && purityH !== null ? fineMg(grossMg, purityH) : null;
-  const ready =
+  const reading = photo?.reading;
+  const aiMismatch = Boolean(
+    reading &&
+    (!saveGate({ typed: grossMg, reading: reading.weight }).allowed ||
+      !saveGate({ typed: purityH, reading: reading.purity }).allowed),
+  );
+  const ready = Boolean(
     karigar &&
     categoryId &&
     jobNumber.trim().length >= 2 &&
     fine !== null &&
-    !saving;
+    fine > 0 &&
+    !saving &&
+    !photoBusy &&
+    (!aiMismatch || overrideReason.trim().length > 0),
+  );
 
   async function submit() {
-    if (!karigar || fine === null || grossMg === null || purityH === null)
+    if (
+      inFlight.current ||
+      photoBusy ||
+      !karigar ||
+      (!requestRef.current && !ready)
+    )
       return;
-    keyRef.current ??= newKey();
+
+    if (!requestRef.current) {
+      requestRef.current = JSON.stringify({
+        karigarId,
+        categoryId,
+        jobNumber: jobNumber.trim(),
+        grossMg,
+        purityH,
+        idempotencyKey: newKey(),
+        ...(photo ? { photoId: photo.photoId } : {}),
+        ...(photo?.aiReadingId ? { aiReadingId: photo.aiReadingId } : {}),
+        ...(photo?.aiReadingId && overrideReason.trim()
+          ? { overrideReason: overrideReason.trim() }
+          : {}),
+      });
+    }
+
+    inFlight.current = true;
     setSaving(true);
+    setPending(true);
     setJobError(null);
+    setSaveError(null);
+
     try {
       const res = await fetch("/api/issues", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          karigarId,
-          categoryId,
-          jobNumber: jobNumber.trim(),
-          grossMg,
-          purityH,
-          idempotencyKey: keyRef.current,
-        }),
+        body: requestRef.current,
       });
-      if (res.status === 409) {
-        setJobError("This job number is already used.");
-        keyRef.current = null;
-        return;
+      if (!res.ok) {
+        if (res.status >= 400 && res.status < 500) {
+          const body = await res.json().catch(() => null);
+          requestRef.current = null;
+          setPending(false);
+          const message =
+            typeof body?.error === "string"
+              ? body.error
+              : "Issue was rejected. Check the values and your session.";
+          setSaveError(message);
+          return;
+        }
+        throw new Error("Issue result is uncertain");
       }
-      if (!res.ok) throw new Error(String(res.status));
+
       const out: {
         entry: {
           slipNo: string;
@@ -178,6 +227,7 @@ export function IssueForm() {
         };
         balanceMg: number;
       } = await res.json();
+
       setData({
         ks: ks.map((k) =>
           k.id === karigarId ? { ...k, balanceMg: out.balanceMg } : k,
@@ -196,13 +246,21 @@ export function IssueForm() {
         purityH: out.entry.purityH,
         fineMg: out.entry.fineMg,
       });
+
+      requestRef.current = null;
+      setPending(false);
       setJobNumber("");
       setGross("");
       setPurity("");
-      keyRef.current = null;
+      setPhoto(null);
+      setOverrideReason("");
+      setPhotoKey((value) => value + 1);
     } catch {
-      toast.error("Could not issue gold. Check the connection and try again.");
+      setSaveError(
+        "Could not confirm the issue. Retry the same request before changing the fields.",
+      );
     } finally {
+      inFlight.current = false;
       setSaving(false);
     }
   }
@@ -211,95 +269,154 @@ export function IssueForm() {
     <>
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
         <div className="border-line flex flex-col gap-6 rounded-xl border bg-white p-6 lg:col-span-7">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="karigar">Karigar</Label>
-            <Select
-              value={karigarId || null}
-              onValueChange={(v) => setKarigarId(v ?? "")}
-              items={ks.map((k) => ({
-                value: k.id,
-                label: `${k.name} - ${k.code}`,
-              }))}
-            >
-              <SelectTrigger id="karigar" className="min-h-12 w-full">
-                <SelectValue placeholder="Select a karigar" />
-              </SelectTrigger>
-              <SelectContent>
-                {ks.map((k) => (
-                  <SelectItem key={k.id} value={k.id}>
-                    {k.name} - {k.code}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <fieldset
+            disabled={saving || pending || photoBusy}
+            className="flex min-w-0 flex-col gap-6"
+          >
+            <legend className="sr-only">Issue details</legend>
             <div className="flex flex-col gap-2">
-              <Label htmlFor="job">Job number</Label>
-              <Input
-                id="job"
-                value={jobNumber}
-                onChange={(e) => setJobNumber(e.target.value)}
-                className="min-h-12"
-                aria-invalid={jobError !== null}
-              />
-              {jobError && (
-                <p role="alert" className="text-alert-red text-sm">
-                  {jobError}
-                </p>
-              )}
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="category">Item category</Label>
+              <Label htmlFor="karigar">Karigar</Label>
               <Select
-                value={categoryId || null}
-                onValueChange={(v) => setCategoryId(v ?? "")}
-                items={cs.map((c) => ({ value: c.id, label: c.name }))}
+                value={karigarId || null}
+                onValueChange={(v) => setKarigarId(v ?? "")}
+                items={ks.map((k) => ({
+                  value: k.id,
+                  label: `${k.name} - ${k.code}`,
+                }))}
               >
-                <SelectTrigger id="category" className="min-h-12 w-full">
-                  <SelectValue placeholder="Select a category" />
+                <SelectTrigger id="karigar" className="min-h-12 w-full">
+                  <SelectValue placeholder="Select a karigar" />
                 </SelectTrigger>
                 <SelectContent>
-                  {cs.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
+                  {ks.map((k) => (
+                    <SelectItem key={k.id} value={k.id}>
+                      {k.name} - {k.code}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-          </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="gross">Gross weight (g)</Label>
-              <Input
-                id="gross"
-                value={gross}
-                onChange={(e) => setGross(e.target.value)}
-                inputMode="decimal"
-                placeholder="120.000"
-                className="min-h-12 text-right text-xl font-semibold"
-                style={num}
-              />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="job">Job number</Label>
+                <Input
+                  id="job"
+                  value={jobNumber}
+                  onChange={(e) => setJobNumber(e.target.value)}
+                  className="min-h-12"
+                  aria-invalid={jobError !== null}
+                />
+                {jobError && (
+                  <p role="alert" className="text-alert-red text-sm">
+                    {jobError}
+                  </p>
+                )}
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="category">Item category</Label>
+                <Select
+                  value={categoryId || null}
+                  onValueChange={(v) => setCategoryId(v ?? "")}
+                  items={cs.map((c) => ({ value: c.id, label: c.name }))}
+                >
+                  <SelectTrigger id="category" className="min-h-12 w-full">
+                    <SelectValue placeholder="Select a category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {cs.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="purity">Purity (%)</Label>
-              <Input
-                id="purity"
-                value={purity}
-                onChange={(e) => setPurity(e.target.value)}
-                inputMode="decimal"
-                placeholder="91.60"
-                className="min-h-12 text-right text-xl font-semibold"
-                style={num}
-              />
-            </div>
-          </div>
 
-          <Button onClick={submit} disabled={!ready} className="min-h-12">
-            {saving ? "Issuing" : "Issue gold"}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="gross">Gross weight (g)</Label>
+                <Input
+                  id="gross"
+                  value={gross}
+                  onChange={(e) => setGross(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="120.000"
+                  className="min-h-12 text-right text-xl font-semibold"
+                  style={num}
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="purity">Purity (%)</Label>
+                <Input
+                  id="purity"
+                  value={purity}
+                  onChange={(e) => setPurity(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="91.60"
+                  className="min-h-12 text-right text-xl font-semibold"
+                  style={num}
+                />
+              </div>
+            </div>
+
+            <ScalePhotoReader
+              key={photoKey}
+              disabled={saving || pending}
+              typedWeight={grossMg}
+              typedPurity={purityH}
+              onBusyChange={setPhotoBusy}
+              onChange={(attachment) => {
+                setPhoto(attachment);
+                setOverrideReason("");
+              }}
+              onUseReading={(value) => {
+                if (
+                  value.weight.state === "ok" &&
+                  value.weight.value !== null
+                ) {
+                  setGross((value.weight.value / 1000).toFixed(3));
+                }
+                if (
+                  value.purity.state === "ok" &&
+                  value.purity.value !== null
+                ) {
+                  setPurity((value.purity.value / 100).toFixed(2));
+                }
+                setOverrideReason("");
+              }}
+            />
+            {aiMismatch && (
+              <div className="space-y-2">
+                <p className="text-alert-amber text-sm">
+                  Typed weight or purity differs from a high-confidence AI
+                  suggestion. Check the photo and correct the values or explain
+                  the override.
+                </p>
+                <Label htmlFor="issue-ai-override">Override reason</Label>
+                <Input
+                  id="issue-ai-override"
+                  value={overrideReason}
+                  onChange={(event) => setOverrideReason(event.target.value)}
+                  maxLength={500}
+                  className="min-h-12"
+                />
+              </div>
+            )}
+          </fieldset>
+          {saveError && (
+            <p role="alert" className="text-alert-red text-sm">
+              {saveError}
+            </p>
+          )}
+          <Button
+            type="button"
+            onClick={submit}
+            disabled={saving || photoBusy || (!pending && !ready)}
+            className="min-h-12"
+          >
+            {saving ? "Issuing" : pending ? "Retry issue" : "Issue gold"}
           </Button>
         </div>
 

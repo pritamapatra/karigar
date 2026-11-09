@@ -98,8 +98,8 @@ export function ReceiptForm() {
   const aiReading = photo?.reading;
   const aiMismatch = Boolean(
     aiReading &&
-      (!saveGate({ typed: weightMg, reading: aiReading.weight }).allowed ||
-        !saveGate({ typed: purityH, reading: aiReading.purity }).allowed),
+    (!saveGate({ typed: weightMg, reading: aiReading.weight }).allowed ||
+      !saveGate({ typed: purityH, reading: aiReading.purity }).allowed),
   );
 
   const canRecord = Boolean(
@@ -115,11 +115,8 @@ export function ReceiptForm() {
   );
 
   async function recordReceipt() {
-    if (
-      photoBusy ||
-      inFlight.current ||
-      (!requestRef.current && !canRecord)
-    ) return;
+    if (photoBusy || inFlight.current || (!requestRef.current && !canRecord))
+      return;
 
     if (!requestRef.current) {
       requestRef.current = JSON.stringify({
@@ -345,6 +342,23 @@ export function ReceiptForm() {
           <ScalePhotoReader
             key={photoKey}
             disabled={busy || pending}
+            typedWeight={weightMg}
+            typedPurity={purityH}
+            onUseReading={(reading) => {
+              if (
+                reading.weight.state === "ok" &&
+                reading.weight.value !== null
+              ) {
+                setWeight((reading.weight.value / 1000).toFixed(3));
+              }
+              if (
+                reading.purity.state === "ok" &&
+                reading.purity.value !== null
+              ) {
+                setPurity((reading.purity.value / 100).toFixed(2));
+              }
+              setOverrideReason("");
+            }}
             onBusyChange={setPhotoBusy}
             onChange={(attachment) => {
               setPhoto(attachment);

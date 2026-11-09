@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { AiPhotoSheet } from "@/components/ai-photo-sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,6 +21,9 @@ export type PhotoAttachment = {
 
 type Props = {
   disabled?: boolean;
+  typedWeight?: number | null;
+  typedPurity?: number | null;
+  onUseReading?: (reading: AiReading) => void;
   onChange: (attachment: PhotoAttachment | null) => void;
   onBusyChange: (busy: boolean) => void;
 };
@@ -39,6 +43,9 @@ async function responseBody(response: Response) {
 
 export function ScalePhotoReader({
   disabled = false,
+  typedWeight = null,
+  typedPurity = null,
+  onUseReading,
   onChange,
   onBusyChange,
 }: Props) {
@@ -48,6 +55,16 @@ export function ScalePhotoReader({
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const inFlight = useRef(false);
+  const inputId = useId();
+  const [previewFile, setPreviewFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
 
   function publish(value: PhotoAttachment | null) {
     setAttachment(value);
@@ -59,9 +76,7 @@ export function ScalePhotoReader({
     setError(null);
     setMessage(null);
 
-    if (
-      !PHOTO_CONTENT_TYPES.some((contentType) => contentType === file.type)
-    ) {
+    if (!PHOTO_CONTENT_TYPES.some((contentType) => contentType === file.type)) {
       setError("Choose a JPEG, PNG or WebP image.");
       return;
     }
@@ -70,6 +85,12 @@ export function ScalePhotoReader({
       return;
     }
 
+    setPreviewUrl(
+      typeof URL.createObjectURL === "function"
+        ? URL.createObjectURL(file)
+        : null,
+    );
+    setPreviewFile(file);
     inFlight.current = true;
     setBusy(true);
     onBusyChange(true);
@@ -87,13 +108,15 @@ export function ScalePhotoReader({
         }),
       );
 
-      const { error: uploadError } = await createClient().storage
-        .from(SCALE_PHOTO_BUCKET)
+      const { error: uploadError } = await createClient()
+        .storage.from(SCALE_PHOTO_BUCKET)
         .uploadToSignedUrl(slot.path, slot.token, file, {
           contentType: file.type,
         });
       if (uploadError) {
-        throw new Error("Photo upload failed. Select the photo again to retry.");
+        throw new Error(
+          "Photo upload failed. Select the photo again to retry.",
+        );
       }
 
       publish({ photoId: slot.photoId });
@@ -115,7 +138,7 @@ export function ScalePhotoReader({
           reading: result.reading,
         });
         setMessage(
-          "Compare the suggestions with the photo, then enter the receipt values manually.",
+          "Check the photo and reading before using suggestions or entering values manually.",
         );
       } else {
         publish({
@@ -127,9 +150,7 @@ export function ScalePhotoReader({
         );
       }
     } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Could not process the photo.",
-      );
+      setError(e instanceof Error ? e.message : "Could not process the photo.");
       setMessage(
         "If the photo uploaded successfully, it remains attached. You can enter values manually.",
       );
@@ -144,6 +165,9 @@ export function ScalePhotoReader({
   function clear() {
     if (busy || disabled) return;
     publish(null);
+    setPreviewFile(null);
+    setPreviewUrl(null);
+    setReviewOpen(false);
     setMessage(null);
     setError(null);
     if (inputRef.current) inputRef.current.value = "";
@@ -158,10 +182,10 @@ export function ScalePhotoReader({
       className="border-line space-y-3 rounded-xl border p-4"
     >
       <div className="space-y-2">
-        <Label htmlFor="receipt-scale-photo">Scale or karat meter photo</Label>
+        <Label htmlFor={inputId}>Scale or karat meter photo</Label>
         <Input
           ref={inputRef}
-          id="receipt-scale-photo"
+          id={inputId}
           type="file"
           accept="image/jpeg,image/png,image/webp"
           disabled={disabled || busy}
@@ -171,7 +195,8 @@ export function ScalePhotoReader({
           }}
         />
         <p className="text-ink-2 text-sm">
-          Optional. JPEG, PNG or WebP, up to 5 MB. Keep the display and unit visible.
+          Optional. JPEG, PNG or WebP, up to 5 MB. Keep the display and unit
+          visible.
         </p>
       </div>
 
@@ -201,6 +226,31 @@ export function ScalePhotoReader({
           {reading.notes && <p>{reading.notes}</p>}
           <p>AI suggestions are not a substitute for checking the display.</p>
         </div>
+      )}
+
+      {previewFile && (
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={disabled}
+            onClick={() => setReviewOpen(true)}
+          >
+            Check photo and reading
+          </Button>
+          <AiPhotoSheet
+            open={reviewOpen}
+            onOpenChange={setReviewOpen}
+            previewUrl={previewUrl}
+            reading={reading}
+            busy={busy}
+            message={message}
+            error={error}
+            typedWeight={typedWeight}
+            typedPurity={typedPurity}
+            onUseReading={onUseReading}
+          />
+        </>
       )}
 
       {attachment && (
