@@ -12,7 +12,7 @@ export type Session = ProfileRow & { userId: string };
 
 export class HttpError extends Error {
   constructor(
-    public readonly status: 400 | 401 | 403 | 404 | 409,
+    public readonly status: 400 | 401 | 403 | 404 | 409 | 429,
     message: string,
   ) {
     super(message);
