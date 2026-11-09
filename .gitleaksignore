@@ -1,0 +1,2 @@
+# Reviewed: UUID idempotencyKey in receipt-schema test fixture; not an authentication credential.
+710a384a89aab5a12f7f749ccc8363fea9422dd9:lib/schemas/receipt.test.ts:generic-api-key:7
