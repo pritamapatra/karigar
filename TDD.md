@@ -1,7 +1,8 @@
 # Technical Design Document: Karigar by Isocode Labs
 
 GitHub: https://github.com/pritamapatra/karigar
-Live app: not supplied; latest deployment readiness unverified
+Live app: https://karigar-mocha.vercel.app/
+Deployment: user-reported Ready on main; exact deployed commit and runtime acceptance checks remain unverified.
 Author: Pritam Patra
 Date: 2026-11-09
 Status: implemented MVP with explicitly incomplete acceptance criteria
@@ -140,3 +141,14 @@ their own evidence where this session did not audit them.
 
 Required artifacts: this TDD, deployment.md, a readable PDF, final screenshots and
 a ZIP under 25 MB. PDF, screenshots and archive verification are pending.
+
+## Public production URL check — 14:00 IST
+
+- Production URL supplied by the user: https://karigar-mocha.vercel.app/
+- User-run anonymous curl check: HTTP 200.
+- Final response URL: https://karigar-mocha.vercel.app/login
+- The request reached the application's login route, not Vercel Authentication.
+- Authenticated demo-role checks, exact deployed source commit, live photo-backed
+  persistence and browser queue replay remain unverified.
+- Earlier deployment-specific URL observations are historical evidence, not the
+  current production entry point.

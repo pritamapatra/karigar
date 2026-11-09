@@ -3,7 +3,8 @@
 Repository: https://github.com/pritamapatra/karigar
 Author: Pritam Patra
 Verification date: 2026-11-09
-Live URL: not supplied; deployment readiness for the latest commit is unverified.
+Production URL: https://karigar-mocha.vercel.app/
+Dashboard status: user-reported Ready on main, 2026-11-09. Exact deployed commit and browser acceptance checks remain unverified.
 
 ## 1. Verified environment
 
@@ -98,7 +99,7 @@ the hosting platform reports that exact commit ready.
 Migration, private storage setup and demo seeding are separate provisioning
 operations; do not assume a frontend deployment performs them.
 
-No live URL or latest deployment-ready evidence has been supplied in this record.
+The user supplied a deployment-specific URL and reported Ready on main. The permanent production alias, exact deployed commit and runtime checks still require verification.
 
 ## 7. Smoke checks
 
@@ -137,3 +138,14 @@ A code rollback does not reverse append-only ledger transactions or migrations.
 Local drafts/queues are account-scoped, not encrypted. Sign-out retains them
 with a warning. Do not clear browser storage while unsynced or uncertain entries
 exist. Server-side idempotency remains required for every replay.
+
+## Public production URL check — 14:00 IST
+
+- Production URL supplied by the user: https://karigar-mocha.vercel.app/
+- User-run anonymous curl check: HTTP 200.
+- Final response URL: https://karigar-mocha.vercel.app/login
+- The request reached the application's login route, not Vercel Authentication.
+- Authenticated demo-role checks, exact deployed source commit, live photo-backed
+  persistence and browser queue replay remain unverified.
+- Earlier deployment-specific URL observations are historical evidence, not the
+  current production entry point.

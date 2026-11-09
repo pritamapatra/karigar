@@ -53,3 +53,24 @@ Cold offline form reopening, offline photos and rejected-entry edit/resubmit are
 not implemented. Draft writes debounce by 200 ms. Local data is not encrypted.
 
 Do not replace this record with an all-green summary without corresponding evidence.
+
+## Hosting evidence supplied at 13:37 IST
+
+- Deployment URL: https://karigar-ez5htrs3j-pritampatra1141-gmailcoms-projects.vercel.app
+- Dashboard status: Ready, reported by the user.
+- Source branch: main, reported by the user.
+- Exact source commit: not supplied.
+- Independent retrieval by the assistant: unsuccessful.
+- Authenticated browser checks: not yet reported.
+- This URL has not been established as the permanent production alias.
+
+## Public production URL check — 14:00 IST
+
+- Production URL supplied by the user: https://karigar-mocha.vercel.app/
+- User-run anonymous curl check: HTTP 200.
+- Final response URL: https://karigar-mocha.vercel.app/login
+- The request reached the application's login route, not Vercel Authentication.
+- Authenticated demo-role checks, exact deployed source commit, live photo-backed
+  persistence and browser queue replay remain unverified.
+- Earlier deployment-specific URL observations are historical evidence, not the
+  current production entry point.

@@ -4,7 +4,7 @@ Gold ledger for karigar issues, receipts, wastage, balances, stock and review al
 
 - Repository: https://github.com/pritamapatra/karigar
 - Author: Pritam Patra
-- Live URL: not supplied in the current verification record.
+- Live app: https://karigar-mocha.vercel.app/
 - Setup and deployment: see `deployment.md`.
 - Architecture and limitations: see `TDD.md`.
 - Test and acceptance evidence: see `verification.md`.
@@ -38,3 +38,14 @@ implemented. Browser replay and live photo-backed persistence still need
 dedicated demo-data verification.
 
 Do not smoke-test with real financial transactions.
+
+## Public production URL check — 14:00 IST
+
+- Production URL supplied by the user: https://karigar-mocha.vercel.app/
+- User-run anonymous curl check: HTTP 200.
+- Final response URL: https://karigar-mocha.vercel.app/login
+- The request reached the application's login route, not Vercel Authentication.
+- Authenticated demo-role checks, exact deployed source commit, live photo-backed
+  persistence and browser queue replay remain unverified.
+- Earlier deployment-specific URL observations are historical evidence, not the
+  current production entry point.
