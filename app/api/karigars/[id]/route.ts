@@ -3,12 +3,18 @@ import { requireRole } from "@/lib/auth";
 import { errorResponse, HttpError } from "@/lib/authz";
 import { updateKarigarSchema } from "@/lib/schemas/karigar";
 
-export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function PATCH(
+  req: Request,
+  ctx: { params: Promise<{ id: string }> },
+) {
   try {
     const { orgId } = await requireRole("clerk", "finance");
     const { id } = await ctx.params;
-    const parsed = updateKarigarSchema.safeParse(await req.json().catch(() => null));
-    if (!parsed.success) throw new HttpError(400, parsed.error.issues[0].message);
+    const parsed = updateKarigarSchema.safeParse(
+      await req.json().catch(() => null),
+    );
+    if (!parsed.success)
+      throw new HttpError(400, parsed.error.issues[0].message);
     const { name, active, wastage } = parsed.data;
     const prisma = await getPrisma();
 
@@ -18,7 +24,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       if (wastage) {
         for (const w of wastage) {
           await tx.karigarWastage.upsert({
-            where: { karigarId_categoryId: { karigarId: id, categoryId: w.categoryId } },
+            where: {
+              karigarId_categoryId: { karigarId: id, categoryId: w.categoryId },
+            },
             update: { wastageBp: w.wastageBp },
             create: { karigarId: id, ...w },
           });
