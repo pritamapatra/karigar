@@ -15,6 +15,11 @@ import {
 } from "@/components/ui/select";
 import { fineMg, formatGrams, unexplainedMg } from "@/lib/gold";
 import { parseGramsToMg, parsePurityToH } from "@/lib/gold-input";
+import { saveGate } from "@/lib/ai-reading";
+import {
+  ScalePhotoReader,
+  type PhotoAttachment,
+} from "@/components/scale-photo-reader";
 
 type Job = {
   id: string;
@@ -46,6 +51,10 @@ export function ReceiptForm() {
   const [weight, setWeight] = useState("");
   const [purity, setPurity] = useState("");
   const [huid, setHuid] = useState("");
+  const [photo, setPhoto] = useState<PhotoAttachment | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoKey, setPhotoKey] = useState(0);
+  const [overrideReason, setOverrideReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -86,7 +95,16 @@ export function ReceiptForm() {
       ? unexplainedMg(remainingMg, job.allowedMg)
       : null;
 
+  const aiReading = photo?.reading;
+  const aiMismatch = Boolean(
+    aiReading &&
+      (!saveGate({ typed: weightMg, reading: aiReading.weight }).allowed ||
+        !saveGate({ typed: purityH, reading: aiReading.purity }).allowed),
+  );
+
   const canRecord = Boolean(
+    !photoBusy &&
+    (!aiMismatch || overrideReason.trim().length > 0) &&
     job &&
     weightMg !== null &&
     purityH !== null &&
@@ -97,7 +115,11 @@ export function ReceiptForm() {
   );
 
   async function recordReceipt() {
-    if (inFlight.current || (!requestRef.current && !canRecord)) return;
+    if (
+      photoBusy ||
+      inFlight.current ||
+      (!requestRef.current && !canRecord)
+    ) return;
 
     if (!requestRef.current) {
       requestRef.current = JSON.stringify({
@@ -105,6 +127,11 @@ export function ReceiptForm() {
         entryType,
         purityH,
         idempotencyKey: crypto.randomUUID(),
+        ...(photo ? { photoId: photo.photoId } : {}),
+        ...(photo?.aiReadingId ? { aiReadingId: photo.aiReadingId } : {}),
+        ...(photo?.aiReadingId && overrideReason.trim()
+          ? { overrideReason: overrideReason.trim() }
+          : {}),
         ...(entryType === "receipt_piece"
           ? { netMg: weightMg, huid: huid.trim() }
           : { grossMg: weightMg }),
@@ -154,6 +181,9 @@ export function ReceiptForm() {
       setPending(false);
       setWeight("");
       setHuid("");
+      setPhoto(null);
+      setOverrideReason("");
+      setPhotoKey((value) => value + 1);
       toast.success(`Receipt recorded. Slip ${result.entry.slipNo}`);
     } catch {
       setSaveError(
@@ -170,6 +200,7 @@ export function ReceiptForm() {
       !job ||
       job.allowedMg === null ||
       pending ||
+      photoBusy ||
       inFlight.current ||
       weight.trim() !== ""
     )
@@ -208,6 +239,9 @@ export function ReceiptForm() {
       setWeight("");
       setPurity("");
       setHuid("");
+      setPhoto(null);
+      setOverrideReason("");
+      setPhotoKey((value) => value + 1);
       toast.success(
         `Job closed. Unexplained wastage: ${formatGrams(result.wastage.unexplainedMg)}`,
       );
@@ -264,7 +298,7 @@ export function ReceiptForm() {
   return (
     <div className="grid items-start gap-6 lg:grid-cols-12">
       <div className="border-line space-y-6 rounded-xl border bg-white p-6 lg:col-span-7">
-        <fieldset disabled={busy || pending} className="space-y-6">
+        <fieldset disabled={busy || pending || photoBusy} className="space-y-6">
           <legend className="sr-only">Receipt details</legend>
           <div className="space-y-2">
             <Label htmlFor="receipt-job">Open job</Label>
@@ -308,6 +342,16 @@ export function ReceiptForm() {
             </div>
           </fieldset>
 
+          <ScalePhotoReader
+            key={photoKey}
+            disabled={busy || pending}
+            onBusyChange={setPhotoBusy}
+            onChange={(attachment) => {
+              setPhoto(attachment);
+              setOverrideReason("");
+            }}
+          />
+
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="receipt-weight">
@@ -335,6 +379,24 @@ export function ReceiptForm() {
             </div>
           </div>
 
+          {aiMismatch && (
+            <div className="space-y-2">
+              <p className="text-alert-red text-sm">
+                Typed weight or purity differs from a high-confidence AI
+                suggestion. Check the photo and explain any override.
+              </p>
+              <Label htmlFor="receipt-ai-override">Override reason</Label>
+              <Input
+                id="receipt-ai-override"
+                value={overrideReason}
+                onChange={(event) => setOverrideReason(event.target.value)}
+                maxLength={500}
+                placeholder="Why is the typed value different?"
+                className="min-h-12"
+              />
+            </div>
+          )}
+
           {entryType === "receipt_piece" && (
             <div className="space-y-2">
               <Label htmlFor="receipt-huid">HUID</Label>
@@ -357,7 +419,7 @@ export function ReceiptForm() {
         <Button
           type="button"
           className="min-h-12"
-          disabled={busy || (!pending && !canRecord)}
+          disabled={busy || photoBusy || (!pending && !canRecord)}
           onClick={recordReceipt}
         >
           {busy ? "Recording" : pending ? "Retry receipt" : "Record receipt"}
@@ -380,7 +442,7 @@ export function ReceiptForm() {
                 type="button"
                 variant="outline"
                 className="min-h-12"
-                disabled={busy || weight.trim() !== ""}
+                disabled={busy || photoBusy || weight.trim() !== ""}
                 onClick={closeSelectedJob}
               >
                 {job.balanceMg > job.allowedMg
